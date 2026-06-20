@@ -1,13 +1,14 @@
 {
   "name": "athene-cli",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Athene — a free, frontier-class, MCP-native terminal coding agent. Part of the open Athene suite.",
   "type": "module",
   "bin": {
     "athene": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "athene.example.json"
   ],
   "engines": {
     "node": ">=20"
@@ -37,13 +38,13 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@types/diff": "^7.0.2",
     "ai": "^5.0.0",
     "diff": "^9.0.0",
     "picocolors": "^1.1.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@types/diff": "^7.0.2",
     "@types/node": "^22.10.0",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
