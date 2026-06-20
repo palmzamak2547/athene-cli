@@ -18,27 +18,39 @@ export function applyEdit(original: string, oldStr: string, newStr: string): Edi
 
   const bom = original.startsWith("﻿") ? "﻿" : "";
   const body = bom ? original.slice(1) : original;
-  const eol = body.includes("\r\n") ? "\r\n" : "\n";
+  const dominantEol = body.includes("\r\n") ? "\r\n" : "\n";
 
-  // Normalise line endings for matching; restore on write.
+  // Normalise line endings for MATCHING only. We splice the ORIGINAL body bytes,
+  // so unedited lines keep their exact endings — correct even for mixed-EOL files.
+  // (A re-applied edit just falls through to the "not found" hint, whose closest-
+  // lines list shows the new text already present — no separate, false-positive-
+  // prone "already applied" check. grok review.)
   const C = body.replace(/\r\n/g, "\n");
   const O = oldStr.replace(/\r\n/g, "\n");
   const N = newStr.replace(/\r\n/g, "\n");
 
-  // Already applied? (new text present, old text absent — a common re-edit trap.)
-  if (N.trim().length > 0 && !C.includes(O) && C.includes(N)) {
-    return {
-      ok: false,
-      error:
-        "The replacement is already in the file — this edit looks already applied. Skip it.",
-    };
-  }
-
   const loc = locate(C, O);
   if ("error" in loc) return { ok: false, error: loc.error };
 
-  const nextC = C.slice(0, loc.start) + N + C.slice(loc.end);
-  return { ok: true, next: bom + nextC.replace(/\n/g, eol) };
+  // Map the normalized match range back onto the original body (\r\n is 2 chars,
+  // \n is 1) so we replace the real bytes and leave every other line untouched.
+  const oStart = toOriginalOffset(body, loc.start);
+  const oEnd = toOriginalOffset(body, loc.end);
+  const newText = N.replace(/\n/g, dominantEol);
+  return { ok: true, next: bom + body.slice(0, oStart) + newText + body.slice(oEnd) };
+}
+
+// Translate an offset in the \n-normalized text to the matching offset in the
+// original (CRLF-preserving) body.
+function toOriginalOffset(body: string, normOffset: number): number {
+  let n = 0;
+  let orig = 0;
+  while (n < normOffset && orig < body.length) {
+    if (body[orig] === "\r" && body[orig + 1] === "\n") orig += 2;
+    else orig += 1;
+    n += 1;
+  }
+  return orig;
 }
 
 type Range = { start: number; end: number };
