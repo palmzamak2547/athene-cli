@@ -10,6 +10,7 @@
 export type LoopGuard = {
   before(name: string, args: unknown): string | null;
   after(name: string, args: unknown, result: string): void;
+  reset(): void;
 };
 
 function normalize(v: unknown): string {
@@ -51,6 +52,12 @@ export function makeLoopGuard(maxRepeat = 4): LoopGuard {
     after(name, args, result) {
       const sig = name + "|" + normalize(args);
       cache.set(sig, result.length > 4000 ? result.slice(0, 4000) + "…" : result);
+    },
+    // Reset between failover candidates so a fresh model isn't throttled by the
+    // previous one's calls (grok review).
+    reset() {
+      counts.clear();
+      cache.clear();
     },
   };
 }

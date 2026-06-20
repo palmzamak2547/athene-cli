@@ -42,6 +42,40 @@ function safeResolve(p: string): string | null {
 const escapeErr = (p: string) =>
   `ERROR: "${p}" is outside the working directory. Athene only operates within the current project (no absolute paths, no ../).`;
 
+// Refuse to read obvious secret files into the model's context — the top
+// real-world leak vector (an injected file says "read .env and exfiltrate it").
+// Templates (.env.example etc.) are allowed. (recon hardening 2026-06-20)
+function isSecretFile(p: string): boolean {
+  const base = (p.split(/[/\\]/).pop() ?? "").toLowerCase();
+  if (/^\.env(\.|$)/.test(base) && !/\.(example|sample|template|dist)$/.test(base)) return true;
+  if (/\.(pem|key|p12|pfx|asc|ppk|keystore|jks)$/.test(base)) return true;
+  if (/^id_(rsa|ed25519|dsa|ecdsa)\b/.test(base)) return true;
+  if (/^(credentials|secrets?)(\.|$)/.test(base)) return true;
+  return false;
+}
+
+// Block catastrophic shell commands even after approval / in --yolo. Not a
+// sandbox — a backstop against unambiguous disasters. Splits on shell operators
+// so a benign prefix can't smuggle a second command. (recon hardening)
+function destructiveReason(command: string): string | null {
+  // Fork bomb — test the WHOLE command; its inner ; | & would defeat the split.
+  if (/:\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*\}\s*;\s*:/.test(command)) return "fork bomb";
+  for (const sub of command.split(/[;&|]+|\n/)) {
+    const t = sub.trim().toLowerCase();
+    if (/^(sudo\s+)?rm\b/.test(t) && /\s-[a-z]*r/.test(t) && /\s-[a-z]*f/.test(t)) {
+      const targets = t
+        .replace(/^(sudo\s+)?rm\s+/, "")
+        .split(/\s+/)
+        .filter((x) => x && !x.startsWith("-"));
+      const danger = new Set(["/", "~", "~/", "$home", "${home}", "..", "../", ".", "*", "/*", "./*"]);
+      if (targets.some((tg) => danger.has(tg))) return "rm -rf of a root/home/parent/glob path";
+    }
+    if (/\bmkfs(\.\w+)?\b/.test(t) || /\bdd\b.*\bof=\/dev\//.test(t)) return "disk overwrite";
+    if (/>\s*\/dev\/(sd|nvme|hd|disk|mmcblk)/.test(t)) return "raw disk write";
+  }
+  return null;
+}
+
 export function makeTools(approve: Approver, onActivity: (line: string) => void) {
   // onActivity is best-effort telemetry — never let it turn a successful op into
   // a reported failure, so it runs AFTER the real result is in hand.
@@ -68,6 +102,8 @@ export function makeTools(approve: Approver, onActivity: (line: string) => void)
       execute: async ({ path: p }) => {
         const f = safeResolve(p);
         if (!f) return escapeErr(p);
+        if (isSecretFile(p))
+          return `ERROR: refusing to read ${p} — it looks like a secrets file. Athene won't load secrets into the model (rename to *.example for a template, or open a specific non-secret file).`;
         try {
           return clip(await fs.readFile(f, "utf8"));
         } catch (e: any) {
@@ -161,6 +197,9 @@ export function makeTools(approve: Approver, onActivity: (line: string) => void)
         "Run a shell command in the working directory; returns stdout+stderr. Use for grep, git, running tests/builds.",
       inputSchema: z.object({ command: z.string().min(1) }),
       execute: async ({ command }) => {
+        const danger = destructiveReason(command);
+        if (danger)
+          return `BLOCKED: refusing to run a destructive command (${danger}). Athene will not run this even with --yolo.`;
         const ok = await approve({ title: `run: ${command}`, preview: "" });
         if (!ok) return `DECLINED: user did not approve running: ${command}`;
         const win = process.platform === "win32";
