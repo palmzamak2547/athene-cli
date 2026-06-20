@@ -20,9 +20,13 @@ npx athene-cli "explain what this repo does"
 
 # …or install the `athene` command globally:
 npm install -g athene-cli
-athene "add a --version flag and update the README"   # shows a diff, asks before each edit
+athene                                                 # interactive session (keeps context)
+athene "add a --version flag and update the README"    # one task; shows a diff, asks before edits
 athene -y "fix the failing test"                       # auto-approve, no prompts
 ```
+
+In an interactive session, history is kept across turns (course-correct freely),
+and slash commands tweak it live: `/effort deep`, `/clear`, `/help`, `/exit`.
 
 ### From source
 
@@ -34,7 +38,8 @@ npm run athene -- "explain what this repo does"
 ## Usage
 
 ```
-athene "<task>" [options]
+athene                  interactive session (in a terminal)
+athene "<task>"         run a single task
 
   -e, --effort <fast|balanced|deep>   model tier (default: balanced)
       --fast / --deep                 shorthands

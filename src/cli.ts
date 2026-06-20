@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // src/cli.ts — Athene CLI entry. Parses args, runs one agent turn over the task.
 import { runAgent } from "./agent.js";
+import { runRepl } from "./repl.js";
 import { EFFORTS, type Effort } from "./providers.js";
 import { pickMode } from "./approval.js";
 
 const HELP = `athene — a free, frontier-class terminal coding agent (Athene suite)
 
 Usage
+  athene                  start an interactive session (in a terminal)
+  athene "<task>"         run a single task
   athene "<task>" [options]
 
 Options
@@ -59,21 +62,30 @@ function parse(argv: string[]): Opts {
 
 async function main() {
   const o = parse(process.argv.slice(2));
-  if (o.help || !o.prompt) {
+  if (o.help) {
     process.stdout.write(HELP);
-    process.exit(o.help ? 0 : 1);
+    process.exit(0);
   }
   if (!EFFORTS.includes(o.effort)) {
     process.stderr.write(`Unknown effort "${o.effort}". Use: ${EFFORTS.join(" | ")}\n`);
     process.exit(1);
   }
+  // No task: drop into the interactive REPL when we have a terminal; otherwise
+  // (piped / CI with no task) print help.
+  const interactive = !o.prompt && Boolean(process.stdin.isTTY);
+  if (!o.prompt && !interactive) {
+    process.stdout.write(HELP);
+    process.exit(1);
+  }
+  const runOpts = {
+    prompt: o.prompt,
+    effort: o.effort,
+    mode: pickMode(o.yolo),
+    maxSteps: o.maxSteps,
+  };
   try {
-    await runAgent({
-      prompt: o.prompt,
-      effort: o.effort,
-      mode: pickMode(o.yolo),
-      maxSteps: o.maxSteps,
-    });
+    if (interactive) await runRepl(runOpts);
+    else await runAgent(runOpts);
   } catch (e: any) {
     process.stderr.write(`\n${e?.message ?? e}\n`);
     process.exit(1);

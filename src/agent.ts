@@ -27,16 +27,38 @@ Operating rules:
 - If a tool result says DECLINED or BLOCKED, the user refused that action — do NOT claim you made the change. Report that it was skipped and stop.
 - Keep answers short — a few lines for simple things, no preamble or filler. Finish with a single-line summary of what you did (or why you could not).`;
 
-type RunOpts = {
+export type RunOpts = {
   prompt: string;
   effort: Effort;
   mode: ApprovalMode;
   maxSteps: number;
 };
 
+// A live agent session: tools / MCP / skills / system prompt are built ONCE,
+// then any number of turns reuse them (the one-shot CLI runs a single turn; the
+// REPL runs many, keeping conversation history so context + the KV-cache stay
+// warm). openSession returns a handle the caller drives.
+export type SessionHandle = {
+  setEffort: (e: Effort) => void;
+  /** Run one task to completion (with failover). Returns the assistant/tool
+   *  messages produced, so the REPL can append them to its history. */
+  runTask: (messages: any[], showBanner: boolean) => Promise<{ ok: boolean; responseMessages: any[] }>;
+  resetStats: () => void;
+  close: () => Promise<void>;
+};
+
 export async function runAgent(opts: RunOpts): Promise<void> {
-  const candidates = resolveCandidates(opts.effort);
+  const session = await openSession(opts);
+  try {
+    await session.runTask([{ role: "user", content: opts.prompt }], true);
+  } finally {
+    await session.close();
+  }
+}
+
+export async function openSession(opts: RunOpts): Promise<SessionHandle> {
   const approve = createApprover(opts.mode);
+  let effort = opts.effort;
 
   // Stats for the run summary + the failover side-effect guard.
   const files = new Set<string>();
@@ -87,20 +109,23 @@ export async function runAgent(opts: RunOpts): Promise<void> {
     process.stderr.write(` ${pc.cyan("●")} ${pc.dim(status.join("  ·  "))}\n`);
   }
 
-  try {
+  const runTask = async (messages: any[], showBanner: boolean) => {
+    const candidates = resolveCandidates(effort);
     const started = Date.now();
+    sideEffected = false; // each task is its own side-effect scope
     let lastErr = "";
     for (let i = 0; i < candidates.length; i++) {
       const { model, label } = candidates[i];
       loopGuard.reset(); // fresh per model attempt (grok review)
-      process.stderr.write(ui.banner(label, opts.effort, opts.mode, process.cwd()));
+      if (showBanner) process.stderr.write(ui.banner(label, effort, opts.mode, process.cwd()));
+      else process.stderr.write(pc.dim(` ${pc.cyan("·")} ${label}\n`)); // compact (REPL)
 
-      const res = await streamOnce(model, opts, tools, system);
+      const res = await streamOnce(model, opts, tools, system, messages);
       if (res.ok) {
         process.stderr.write(
           ui.summary({ files: files.size, commands: commands + mcpCalls, ms: Date.now() - started }),
         );
-        return;
+        return { ok: true, responseMessages: res.responseMessages ?? [] };
       }
 
       lastErr = res.err ?? "unknown error";
@@ -114,10 +139,21 @@ export async function runAgent(opts: RunOpts): Promise<void> {
       process.stderr.write(ui.warnLine(`${label} failed (${lastErr})`));
       if (i < candidates.length - 1) process.stderr.write(pc.dim("   trying the next free model…\n"));
     }
-    throw new Error(`All free models for effort "${opts.effort}" failed. Last error: ${lastErr}`);
-  } finally {
-    await mcp.close();
-  }
+    throw new Error(`All free models for effort "${effort}" failed. Last error: ${lastErr}`);
+  };
+
+  return {
+    setEffort: (e) => {
+      effort = e;
+    },
+    runTask,
+    resetStats: () => {
+      files.clear();
+      commands = 0;
+      mcpCalls = 0;
+    },
+    close: () => mcp.close(),
+  };
 }
 
 // Run one model. ok=true if it produced output / finished cleanly; ok=false (with
@@ -128,15 +164,25 @@ async function streamOnce(
   opts: RunOpts,
   tools: Record<string, any>,
   system: string,
-): Promise<{ ok: boolean; err?: string }> {
+  messages: any[],
+): Promise<{ ok: boolean; err?: string; responseMessages?: any[] }> {
   const spin = ui.makeSpinner("thinking…");
   let sawText = false;
   spin.start();
+  // The assistant/tool messages this turn produced, captured for the REPL so the
+  // next turn has full conversation history.
+  const grab = async (result: any): Promise<any[]> => {
+    try {
+      return (await result.response).messages ?? [];
+    } catch {
+      return [];
+    }
+  };
   try {
     const result = streamText({
       model,
       system,
-      prompt: opts.prompt,
+      messages,
       tools,
       stopWhen: stepCountIs(opts.maxSteps),
     });
@@ -181,14 +227,14 @@ async function streamOnce(
     spin.stop();
     if (sawText) {
       process.stdout.write("\n");
-      return { ok: true };
+      return { ok: true, responseMessages: await grab(result) };
     }
     // Finished with no written answer — almost always a tool loop or a hit step
     // cap. Say so honestly instead of exiting silently.
     process.stderr.write(
       ui.warnLine("the model stopped without a written answer (it may have looped) — try --deep or a clearer task"),
     );
-    return { ok: true };
+    return { ok: true, responseMessages: await grab(result) };
   } catch (e) {
     spin.stop();
     const err = stringifyErr(e);
