@@ -14,6 +14,27 @@ import type { LanguageModel } from "ai";
 export type Effort = "fast" | "balanced" | "deep";
 export const EFFORTS: Effort[] = ["fast", "balanced", "deep"];
 
+// Many free/smaller models reject PARALLEL tool calls — NIM's llama-3.3-70b
+// returns 400 "This model only supports single tool-calls at once". The
+// openai-compatible provider doesn't expose a typed option for it, so we patch
+// the chat-completions body to force single-tool-call-per-step (a standard
+// OpenAI field, accepted by Groq/Cerebras/OpenRouter/NIM). Only set it when the
+// request actually carries tools, so we never send a stray field on plain chat.
+const singleToolCallFetch: typeof fetch = async (input, init) => {
+  if (init?.body && typeof init.body === "string") {
+    try {
+      const b = JSON.parse(init.body);
+      if (Array.isArray(b.tools) && b.tools.length > 0 && b.parallel_tool_calls === undefined) {
+        b.parallel_tool_calls = false;
+        init = { ...init, body: JSON.stringify(b) };
+      }
+    } catch {
+      /* body isn't JSON we recognise — forward untouched */
+    }
+  }
+  return fetch(input, init);
+};
+
 type Provider = { baseURL: string; keyEnv: string };
 
 const PROVIDERS: Record<string, Provider> = {
@@ -69,7 +90,12 @@ export function resolveCandidates(effort: Effort): Candidate[] {
     const def = PROVIDERS[provKey];
     const apiKey = process.env[def.keyEnv];
     if (!apiKey) continue;
-    const provider = createOpenAICompatible({ name: provKey, baseURL: def.baseURL, apiKey });
+    const provider = createOpenAICompatible({
+      name: provKey,
+      baseURL: def.baseURL,
+      apiKey,
+      fetch: singleToolCallFetch,
+    });
     out.push({ model: provider(modelId), label: `${provKey}:${modelId}` });
   }
   if (out.length === 0) {

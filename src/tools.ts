@@ -28,8 +28,9 @@ const clip = (s: string, n = CAP) =>
 const bytes = (s: string) => Buffer.byteLength(s, "utf8");
 
 // Resolve a model-supplied path INSIDE the working directory. Returns null for
-// absolute paths or anything that escapes cwd via `..`.
-function safeResolve(p: string): string | null {
+// absolute paths or anything that escapes cwd via `..`. Exported so the search
+// tools (grep/glob) share one confinement rule.
+export function safeResolve(p: string): string | null {
   if (typeof p !== "string" || p.length === 0) return null;
   if (path.isAbsolute(p)) return null;
   const base = root();
@@ -39,7 +40,7 @@ function safeResolve(p: string): string | null {
   return target;
 }
 
-const escapeErr = (p: string) =>
+export const escapeErr = (p: string) =>
   `ERROR: "${p}" is outside the working directory. Athene only operates within the current project (no absolute paths, no ../).`;
 
 // Refuse to read obvious secret files into the model's context — the top
@@ -189,6 +190,47 @@ export function makeTools(approve: Approver, onActivity: (line: string) => void)
         }
         note(`edited ${p}`);
         return `OK: edited ${p}`;
+      },
+    }),
+
+    multi_edit: tool({
+      description:
+        "Apply several find/replace edits to ONE file, in order, ATOMICALLY (all succeed or nothing is written). One approval covers the whole batch. Each edit's old_string must match exactly + uniquely at the moment it is applied (a later edit sees earlier edits' results). Prefer this over many edit_file calls on the same file.",
+      inputSchema: z.object({
+        path: z.string().min(1),
+        edits: z
+          .array(z.object({ old_string: z.string().min(1), new_string: z.string() }))
+          .min(1)
+          .describe("edits applied in array order"),
+      }),
+      execute: async ({ path: p, edits }) => {
+        const f = safeResolve(p);
+        if (!f) return escapeErr(p);
+        let data: string;
+        try {
+          data = await fs.readFile(f, "utf8");
+        } catch (e: any) {
+          return `ERROR editing ${p}: ${e.message}`;
+        }
+        let cur = data;
+        for (let i = 0; i < edits.length; i++) {
+          const r = applyEdit(cur, edits[i].old_string, edits[i].new_string);
+          if (!r.ok) return `ERROR multi_edit ${p} (edit ${i + 1}/${edits.length}): ${r.error}`;
+          cur = r.next;
+        }
+        if (cur === data) return `ERROR multi_edit ${p}: edits produced no change.`;
+        const ok = await approve({
+          title: `multi-edit ${p} (${edits.length} edits)`,
+          preview: renderDiff(data, cur),
+        });
+        if (!ok) return `DECLINED: user did not approve editing ${p}.`;
+        try {
+          await fs.writeFile(f, cur, "utf8");
+        } catch (e: any) {
+          return `ERROR editing ${p}: ${e.message}`;
+        }
+        note(`multi-edited ${p} (${edits.length} edits)`);
+        return `OK: applied ${edits.length} edits to ${p}`;
       },
     }),
 
