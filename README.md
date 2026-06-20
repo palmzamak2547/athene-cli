@@ -46,6 +46,7 @@ athene "<task>"         run a single task
   -y, --yolo                          allow file writes + shell commands (default: read-only)
       --plan                          read-only: propose a plan for approval, don't edit
       --verify / --no-verify          run the project's check after a file change + self-correct
+      --architect                     plan with a strong model, then edit with the chosen one
       --max-steps <n>                 max agent steps (default: 24)
   -v, --version                       print version
   -h, --help
@@ -138,6 +139,11 @@ A working multi-step agent on free frontier models. Shipped:
   track (Claude Code's pattern).
 - **Plan mode** (`--plan` / `/plan`) — explore read-only and propose a plan for
   approval; every edit/command is declined until you turn it off.
+- **Architect/editor** (`--architect` / `/architect on`) — a strong model studies
+  the code read-only and writes a concrete plan, then the chosen (often cheaper)
+  model executes it. aider's split: better edits, and you can pair a `deep`
+  architect with a `--fast` editor to save cost. Fails over across the deep tier
+  so a throttled planner never leaves a truncated plan.
 - **Sub-agents** (`task` tool) — the agent delegates a big self-contained sub-job
   to a fresh sub-agent with its own context; only the sub-agent's report comes
   back, so the main context stays lean. One level deep (no recursion); the

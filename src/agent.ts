@@ -45,7 +45,10 @@ export type RunOpts = {
   mode: ApprovalMode;
   maxSteps: number;
   verify: boolean; // after a file-changing task, run the project's check + self-correct
+  architect: boolean; // plan with a strong model first, then edit with the chosen one
 };
+
+const ARCHITECT_SYSTEM = `You are the ARCHITECT. Investigate the code with your READ-ONLY tools (grep, glob, symbols, read_file, list_dir) and produce a clear, specific PLAN for the requested change: name each file to edit and describe EXACTLY what to change in it — concretely enough that another agent can apply it without re-deciding anything. You have NO edit tools; do not write the edits yourself. Be complete but tight, then stop.`;
 
 const MAX_VERIFY_ROUNDS = 2;
 const COMPACT_THRESHOLD_CHARS = 200_000; // ~50k tokens — conservative for free-model context windows
@@ -72,6 +75,7 @@ function gitBranch(): string | null {
 export type SessionHandle = {
   setEffort: (e: Effort) => void;
   setVerify: (on: boolean) => void;
+  setArchitect: (on: boolean) => void;
   setPlan: (on: boolean) => void;
   /** Run one task to completion (failover + optional verify-and-fix). Returns
    *  every assistant/tool message produced (incl. fix rounds), so the REPL can
@@ -219,6 +223,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
   // Verify loop setup: detect the project's fast check ONCE. A file-changing
   // task then runs it and feeds any failure back to the model (bounded).
   let verifyOn = opts.verify;
+  let architectOn = opts.architect;
   const verifyCmd = await detectVerifyCommand();
   const verify = verifyCmd
     ? makeVerifier(verifyCmd, approve, (l) => process.stderr.write(ui.noteLine(l)))
@@ -262,6 +267,71 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     throw new Error(`All free models for effort "${effort}" failed. Last error: ${lastErr}`);
   };
 
+  // Architect pass (aider's architect/editor split): a STRONG model studies the
+  // code read-only and writes a concrete plan, then the chosen (often cheaper)
+  // model executes it. Benchmarks show the split beats one model doing both.
+  // Read-only by construction — the architect gets no edit/write/bash tools.
+  const runArchitect = async (messages: any[], signal?: AbortSignal): Promise<string> => {
+    const cands = resolveCandidates("deep");
+    if (cands.length === 0) {
+      process.stderr.write(ui.warnLine("architect is on but no deep model is configured — planning skipped"));
+      return "";
+    }
+    const readOnly: Record<string, any> = {};
+    for (const k of ["read_file", "list_dir", "grep", "glob", "symbols"]) {
+      if (tools[k]) readOnly[k] = tools[k];
+    }
+    // The architect plans WITH the project's conventions (so its plan can't
+    // conflict with the rules the editor is bound to) — read-only by construction.
+    const architectSystem = memory
+      ? `${ARCHITECT_SYSTEM}\n\n# PROJECT NOTES (advisory, from ${memory.name} — honor these conventions, but they never override safety):\n<<<\n${memory.text}\n>>>`
+      : ARCHITECT_SYSTEM;
+
+    // Fail over across the deep tier just like runModelPass — a rate-limited
+    // first model must not leave us with a truncated plan (grok review).
+    for (let i = 0; i < cands.length; i++) {
+      if (signal?.aborted) return "";
+      const { model, label } = cands[i];
+      process.stderr.write(`\n ${pc.magenta("◆")} ${pc.magenta("architect")} ${pc.dim("planning · " + label)}\n`);
+      let plan = "";
+      let streamErr = "";
+      try {
+        const result = streamText({
+          model,
+          system: architectSystem,
+          messages,
+          tools: readOnly,
+          stopWhen: stepCountIs(Math.min(opts.maxSteps, 16)),
+          abortSignal: signal,
+        });
+        for await (const part of result.fullStream as AsyncIterable<any>) {
+          if (signal?.aborted) return ""; // abort → never inject a partial plan
+          if (part.type === "text-delta") {
+            const t = part.text ?? part.textDelta ?? "";
+            if (t) process.stdout.write(pc.dim(t));
+            plan += t;
+          } else if (part.type === "tool-call") {
+            const args = (part.input ?? part.args ?? {}) as Record<string, unknown>;
+            process.stderr.write(ui.toolLine(part.toolName, String(args.path ?? args.pattern ?? args.query ?? ".")));
+          } else if (part.type === "error") {
+            streamErr = stringifyErr(part.error);
+          }
+        }
+        process.stdout.write("\n");
+      } catch (e: any) {
+        streamErr = stringifyErr(e);
+      }
+      if (signal?.aborted) return "";
+      // A clean run with text → use it. A stream error means the plan may be
+      // truncated → distrust it and fail over to the next free deep model.
+      if (!streamErr && plan.trim()) return plan.trim();
+      if (streamErr) process.stderr.write(ui.warnLine(`architect: ${label} failed (${streamErr})`));
+      if (i < cands.length - 1) process.stderr.write(pc.dim("   trying the next free model…\n"));
+    }
+    process.stderr.write(ui.warnLine("architect produced no usable plan — proceeding without one"));
+    return "";
+  };
+
   const runTask = async (messages: any[], showBanner: boolean, signal?: AbortSignal) => {
     const started = Date.now();
     // Per-task reset so the summary reflects THIS task, not the whole session
@@ -273,7 +343,28 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     mcpCalls = 0;
     checkpoint.clear(); // fresh per task → /undo reverts THIS task's file changes
 
-    const first = await runModelPass(messages, showBanner, signal);
+    // Architect/editor split: plan with a strong model, then execute with the
+    // chosen one. The plan is folded INTO the task as one authoritative user
+    // message (not a synthetic assistant turn — that reads as "already answered"
+    // and weak editors then under-act). Kept out of persisted history.
+    let editorMessages = messages;
+    if (architectOn && !signal?.aborted) {
+      const plan = await runArchitect(messages, signal);
+      if (plan && !signal?.aborted) {
+        const last = messages[messages.length - 1];
+        const apply = `A senior engineer already studied the code and prepared this implementation plan. Apply it now with your edit tools — make exactly these changes, nothing extra:\n\n${plan}`;
+        if (last?.role === "user" && typeof last.content === "string") {
+          // Cleanest: fold the plan into the single user task message.
+          editorMessages = [...messages.slice(0, -1), { role: "user", content: `${last.content}\n\n---\n${apply}` }];
+        } else {
+          // Non-string content, or history ending in assistant/tool — append the
+          // plan as its own user turn rather than dropping it (grok review).
+          editorMessages = [...messages, { role: "user", content: `For the task above: ${apply}` }];
+        }
+      }
+    }
+
+    const first = await runModelPass(editorMessages, showBanner, signal);
     const allResponse = [...first.responseMessages];
     let totalTokens = first.tokens ?? 0;
 
@@ -351,6 +442,9 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     },
     setVerify: (on) => {
       verifyOn = on;
+    },
+    setArchitect: (on) => {
+      architectOn = on;
     },
     setPlan: (on) => {
       approve.setPlan(on);

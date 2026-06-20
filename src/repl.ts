@@ -25,6 +25,7 @@ const HELP = `${pc.bold("commands")}
   /effort <tier>   switch model tier (${EFFORTS.join(" | ")})
   /fast /deep      shortcuts for the tiers
   /verify on|off   run the project's check after a file change + self-correct
+  /architect on|off  plan with a strong model first, then edit (better edits)
   /plan on|off     read-only: propose changes for approval, don't apply
   /init            analyze the project and write an AGENTS.md
   /diff            show the working-tree git diff
@@ -188,6 +189,14 @@ export async function runRepl(opts: RunOpts, initial?: any[]): Promise<void> {
           const on = arg === "on" || arg === "true" || arg === "1";
           session.setVerify(on);
           process.stdout.write(pc.dim(`verify → ${on ? "on" : "off"}\n`));
+          continue;
+        }
+        if (cmd === "architect") {
+          const on = arg === "on" || arg === "true" || arg === "1";
+          session.setArchitect(on);
+          process.stdout.write(
+            pc.dim(`architect → ${on ? "on (a strong model plans, then the editor applies)" : "off"}\n`),
+          );
           continue;
         }
         if (cmd === "plan") {

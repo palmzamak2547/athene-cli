@@ -21,13 +21,14 @@ function version(): string {
 
 // Optional per-user defaults from ~/.athene/config.json: { "defaults": { "effort":
 // "deep", "verify": true } }. CLI flags always win over these.
-function userDefaults(): { effort?: Effort; verify?: boolean } {
+function userDefaults(): { effort?: Effort; verify?: boolean; architect?: boolean } {
   try {
     const cfg = JSON.parse(readFileSync(path.join(os.homedir(), ".athene", "config.json"), "utf8"));
     const d = cfg?.defaults ?? {};
     return {
       effort: EFFORTS.includes(d.effort) ? d.effort : undefined,
       verify: typeof d.verify === "boolean" ? d.verify : undefined,
+      architect: typeof d.architect === "boolean" ? d.architect : undefined,
     };
   } catch {
     return {};
@@ -52,6 +53,8 @@ Options
       --plan                          read-only: propose a plan for approval, don't edit
       --verify / --no-verify          after a file change, run the project's check
                                       and self-correct (default: on with --yolo)
+      --architect                     plan with a strong model first, then edit
+                                      with the chosen one (aider-style; better edits)
       --max-steps <n>                 max agent steps (default: 24)
   -h, --help                          show this help
 
@@ -79,12 +82,13 @@ type Opts = {
   plan: boolean;
   cont: boolean; // --continue: resume the last session for this dir
   verify: boolean | null; // null = unset → config default, else yolo
+  architect: boolean | null; // null = unset → config default, else off
   maxSteps: number;
   prompt: string;
 };
 
 function parse(argv: string[]): Opts {
-  const o: Opts = { help: false, version: false, effort: "balanced", effortExplicit: false, yolo: false, plan: false, cont: false, verify: null, maxSteps: 24, prompt: "" };
+  const o: Opts = { help: false, version: false, effort: "balanced", effortExplicit: false, yolo: false, plan: false, cont: false, verify: null, architect: null, maxSteps: 24, prompt: "" };
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -95,6 +99,8 @@ function parse(argv: string[]): Opts {
     else if (a === "-c" || a === "--continue") o.cont = true;
     else if (a === "--verify") o.verify = true;
     else if (a === "--no-verify") o.verify = false;
+    else if (a === "--architect") o.architect = true;
+    else if (a === "--no-architect") o.architect = false;
     else if (a === "--fast") (o.effort = "fast"), (o.effortExplicit = true);
     else if (a === "--deep") (o.effort = "deep"), (o.effortExplicit = true);
     else if (a === "-e" || a === "--effort") (o.effort = (argv[++i] as Effort) ?? "balanced"), (o.effortExplicit = true);
@@ -144,6 +150,7 @@ async function main() {
     mode: o.plan ? ("plan" as const) : pickMode(o.yolo),
     maxSteps: o.maxSteps,
     verify: o.verify ?? def.verify ?? o.yolo, // flag > config > (verify when --yolo)
+    architect: o.architect ?? def.architect ?? false, // flag > config > off
   };
   try {
     if (interactive) {
