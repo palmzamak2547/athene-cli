@@ -43,25 +43,54 @@ athene "<task>" [options]
   -h, --help
 ```
 
-- **fast** — Groq `gpt-oss-20b` / Cerebras (sub-second) for quick edits + Q&A
-- **balanced** (default) — NIM `qwen3-coder-480b` — the best free coder
-- **deep** — NIM `deepseek-r1` — reasoning for hard problems
+- **fast** — Groq `gpt-oss-20b` / NIM `llama-3.3-70b` (sub-second) for quick edits + Q&A
+- **balanced** (default) — NIM `qwen3.5-122b` — a strong free coder
+- **deep** — NIM `deepseek-v4` — reasoning for hard problems
 
-Set any of `NVIDIA_API_KEY` (always-on floor), `GROQ_API_KEY`, `CEREBRAS_API_KEY`,
-`OPENROUTER_API_KEY`. Athene uses the first available provider per tier.
+Model IDs are verified against the live NIM catalog and the chain **fails over**
+automatically (a model that goes EOL → 410 just falls to the next free one). Set any
+of `NVIDIA_API_KEY` (always-on floor), `GROQ_API_KEY`, `CEREBRAS_API_KEY`,
+`OPENROUTER_API_KEY`.
+
+## MCP — composable
+
+Point Athene at any [Model Context Protocol](https://modelcontextprotocol.io) server
+and its tools join the built-ins. Create `athene.json` (or `~/.athene/config.json`):
+
+```json
+{
+  "mcpServers": {
+    "arnfa":  { "command": "npx", "args": ["arnfa-mcp"] },
+    "remote": { "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
+  }
+}
+```
 
 ## Safety
 
-Read-only by default (read_file, list_dir). File writes + shell commands require
-`--yolo`. An interactive per-action approval prompt is on the roadmap.
+- **Approval** — by default Athene shows a diff / the command and asks before each
+  change (in a terminal); `--yolo` auto-approves; piped/non-interactive is read-only.
+- **Sandboxed paths** — file tools are confined to the working directory (no `../`,
+  no absolute paths).
+- **Secret-aware** — won't read `.env`/`*.pem`/keys into the model; strips secrets
+  from spawned MCP servers' environment.
+- **Destructive-command block** — refuses `rm -rf /`, fork bombs, `dd→/dev`, etc.
+  even with `--yolo`.
+- **Trust boundary** — file/tool/MCP contents are treated as data, never commands.
 
 ## Status
 
-v0.0.1 — working agent loop with `read_file`, `list_dir`, `write_file`, `edit_file`,
-`bash`. Next: MCP client (connect to any MCP server), interactive approval, an Ink TUI,
-a `semantic-router` effort classifier, and a groundedness check (Iron Rule 0).
+**v0.4** — working multi-step agent on free frontier models, with: runtime model
+failover, diff-before-apply approval (3 modes), MCP client, a tolerant edit matcher
+(exact → line-trimmed → whitespace, EOL/BOM-aware), a runaway-loop guard, and the
+safety guards above. Reviewed by a 3-model loop (Claude + grok + codex).
 
-## Roadmap (the Athene suite)
+**Next** (frontier patterns from Codex / Claude Code / aider / opencode): dedicated
+`grep`/`glob` tools (vs shell), `multi_edit`, post-edit verify loop, `AGENTS.md`
+project memory, an interactive REPL + slash-commands, and a `semantic-router` effort
+classifier.
+
+## The Athene suite
 
 - **Athene CLI** — this. The flagship dev agent.
 - **Athene Design** — prompt → editable UI/app.
