@@ -12,6 +12,7 @@ import pc from "picocolors";
 import { resolveCandidates, type Effort } from "./providers.js";
 import { makeTools } from "./tools.js";
 import { makeSearchTools } from "./search.js";
+import { makeSubagentTool } from "./subagent.js";
 import { createApprover, type ApprovalMode } from "./approval.js";
 import { loadMcpConfig, connectMcp } from "./mcp.js";
 import { loadSkills, loadProjectMemory } from "./skills.js";
@@ -29,6 +30,7 @@ IRON RULE 0 — never fabricate. Never invent file contents, APIs, function/vari
 
 Working method:
 - INSPECT before you change: grep (search contents), glob (find files), read_file, list_dir — prefer these over bash for search.
+- For a big, self-contained sub-job whose intermediate detail you don't need (a wide search, a multi-file survey), delegate it with the task tool — you get back only its report and keep your own context lean.
 - Make the SMALLEST correct change. Prefer edit_file (exact unique match) over rewriting whole files; use multi_edit for several edits to one file. NEVER delete or rewrite comments or code unrelated to the request — "clean up" is out of scope unless explicitly asked.
 - Verify before claiming done: when it's cheap, run the build / tests and read the REAL output. Never report success for something you did not verify. If a check fails, fix the root cause — never make it pass by weakening, deleting, or mocking away the test or the check itself.
 - If a tool result says DECLINED or BLOCKED, the user refused — do NOT claim you made the change; report it was skipped and stop. If it is DECLINED for "plan mode", do not retry — present a concise numbered plan of the changes you would make, then stop and wait for approval.
@@ -133,9 +135,8 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
   const skills = await loadSkills();
   const memory = await loadProjectMemory();
 
-  const tools = { ...builtin, ...search, ...mcp.tools, ...skills.tools };
+  const tools: Record<string, any> = { ...builtin, ...search, ...mcp.tools, ...skills.tools };
   const loopGuard = makeLoopGuard();
-  applyLoopGuard(tools, loopGuard); // stop same-tool-same-args spinning
 
   let system = SYSTEM;
   if (memory) {
@@ -144,6 +145,15 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
   if (skills.promptIndex) {
     system += `\n\n# AVAILABLE SKILLS — call use_skill("<name>") to load the full instructions BEFORE doing a task it covers:\n${skills.promptIndex}`;
   }
+
+  // The `task` tool (context isolation) — added AFTER the system prompt is built;
+  // it closes over the finalized tools/system/effort so a sub-agent inherits them.
+  tools.task = makeSubagentTool({
+    getTools: () => tools,
+    getEffort: () => effort,
+    getSystem: () => system,
+  });
+  applyLoopGuard(tools, loopGuard); // stop same-tool-same-args spinning (incl. repeated task spawns)
 
   const status: string[] = [];
   const branch = gitBranch();

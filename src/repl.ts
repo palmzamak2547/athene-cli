@@ -23,11 +23,14 @@ const HELP = `${pc.bold("commands")}
   /fast /deep      shortcuts for the tiers
   /verify on|off   run the project's check after a file change + self-correct
   /plan on|off     read-only: propose changes for approval, don't apply
+  /init            analyze the project and write an AGENTS.md
   /diff            show the working-tree git diff
   /commands        list your custom .athene/commands
   /clear           forget the conversation so far (fresh context)
   /exit            quit (or Ctrl-D)
 Anything else is a task. History is kept across turns — refer back freely.`;
+
+const INIT_PROMPT = `Analyze this project and create (or improve, if it exists) an AGENTS.md at the repo root. Inspect package.json / README / config files and sample a few source files first. Document concisely: what the project is, the stack, how to build / test / run it, the key conventions, and the directory layout. Keep it tight — AGENTS.md is loaded into agent context every session, so signal over completeness.`;
 
 async function gitDiff(): Promise<string> {
   try {
@@ -148,12 +151,16 @@ export async function runRepl(opts: RunOpts): Promise<void> {
           process.stdout.write(pc.dim(`effort → ${effort}\n`));
           continue;
         }
-        const custom = commands.get(cmd);
-        if (custom) {
-          taskText = expandCommand(custom.template, arg);
+        if (cmd === "init") {
+          taskText = INIT_PROMPT; // run as a task (the agent inspects + writes AGENTS.md)
         } else {
-          process.stdout.write(pc.yellow(`unknown command /${raw} — try /help\n`));
-          continue;
+          const custom = commands.get(cmd);
+          if (custom) {
+            taskText = expandCommand(custom.template, arg);
+          } else {
+            process.stdout.write(pc.yellow(`unknown command /${raw} — try /help\n`));
+            continue;
+          }
         }
       }
 

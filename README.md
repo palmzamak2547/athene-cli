@@ -114,14 +114,19 @@ A working multi-step agent on free frontier models. Shipped:
   exact → line-trimmed → whitespace matcher, EOL/BOM-aware), `multi_edit`
   (atomic), `bash`.
 - **Interactive REPL** — `athene` (no task) keeps conversation history across
-  turns; slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/clear`, plus
-  your own `.athene/commands/*.md` templated commands (`$ARGUMENTS`, `$1`…).
+  turns; slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/init`,
+  `/clear`, plus your own `.athene/commands/*.md` templated commands
+  (`$ARGUMENTS`, `$1`…).
   Ctrl-C interrupts a running task (and quits at the idle prompt); the status
   line shows the git branch. Long sessions **auto-compact** — older turns are
   summarized (at a clean boundary, never orphaning a tool result) so the context
   window never overflows.
 - **Plan mode** (`--plan` / `/plan`) — explore read-only and propose a plan for
   approval; every edit/command is declined until you turn it off.
+- **Sub-agents** (`task` tool) — the agent delegates a big self-contained sub-job
+  to a fresh sub-agent with its own context; only the sub-agent's report comes
+  back, so the main context stays lean. One level deep (no recursion); the
+  sub-agent's edits are still approval-gated.
 - **Verify loop** — after a file change, runs the project's check (typecheck /
   build / cargo check / go build) and feeds failures back to self-correct;
   on by default under `--yolo` (`--verify` / `--no-verify` to override). It
@@ -138,10 +143,10 @@ A working multi-step agent on free frontier models. Shipped:
   3-model loop (Claude + grok + codex) and informed by a study of frontier
   agents' documented failure modes.
 
-**Next** (frontier patterns from Codex / Claude Code / Grok Build): subagent
-context-isolation for big tasks, per-turn rewind, and a `/init` that scaffolds
-an `AGENTS.md`. Then the rest of the suite — Athene Design (prompt → editable
-UI, Phase 0 live) and Athene Desktop (local + free models).
+**Next** (frontier patterns from Codex / Claude Code / Grok Build): per-turn
+rewind (restore conversation + working tree), parallel sub-agents, and a
+config file for defaults. Then the rest of the suite — Athene Design (prompt →
+editable UI, Phase 0 live) and Athene Desktop (local + free models).
 
 ## Development
 
