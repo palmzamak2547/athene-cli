@@ -28,7 +28,7 @@ import type { Approver } from "./approval.js";
 
 export type McpServerConfig =
   | { command: string; args?: string[]; env?: Record<string, string> }
-  | { url: string };
+  | { url: string; headers?: Record<string, string> };
 
 type Config = { mcpServers?: Record<string, McpServerConfig> };
 
@@ -78,6 +78,19 @@ function argsPreview(args: unknown): string {
   }
 }
 
+// Don't hand a spawned MCP server the user's whole environment (API keys, tokens).
+// Forward everything EXCEPT obvious secrets; a server's own secret goes in its
+// `env` config explicitly, which is re-applied last. (grok review)
+function safeChildEnv(extra?: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === undefined) continue;
+    if (/(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE)/i.test(k)) continue;
+    out[k] = v;
+  }
+  return { ...out, ...(extra ?? {}) };
+}
+
 export type McpHandle = {
   tools: Record<string, ReturnType<typeof dynamicTool>>;
   summary: string[]; // e.g. ["arnfa (6 tools)"]
@@ -95,19 +108,25 @@ export async function connectMcp(
   const clients: Client[] = [];
 
   for (const [name, cfg] of Object.entries(servers)) {
+    let client: Client | undefined;
+    let registered = false;
     try {
       const transport =
         "url" in cfg
-          ? new StreamableHTTPClientTransport(new URL(cfg.url))
+          ? new StreamableHTTPClientTransport(
+              new URL(cfg.url),
+              cfg.headers ? { requestInit: { headers: cfg.headers } } : undefined,
+            )
           : new StdioClientTransport({
               command: cfg.command,
               args: cfg.args ?? [],
-              env: { ...process.env, ...(cfg.env ?? {}) } as Record<string, string>,
+              env: safeChildEnv(cfg.env),
             });
-      const client = new Client({ name: "athene", version: "0.0.1" }, { capabilities: {} });
+      client = new Client({ name: "athene", version: "0.0.1" }, { capabilities: {} });
       await withTimeout(client.connect(transport), 20_000, `connect ${name}`);
       const listed = await withTimeout(client.listTools(), 15_000, `listTools ${name}`);
       const mcpTools = listed.tools ?? [];
+      const c = client; // definite, connected client for the tool closures
 
       for (const t of mcpTools) {
         const ns = `${name}__${t.name}`;
@@ -119,7 +138,7 @@ export async function connectMcp(
             if (!ok) return `DECLINED: user did not approve calling ${ns}.`;
             try {
               const res = await withTimeout(
-                client.callTool({ name: t.name, arguments: (args ?? {}) as Record<string, unknown> }),
+                c.callTool({ name: t.name, arguments: (args ?? {}) as Record<string, unknown> }),
                 60_000,
                 `call ${ns}`,
               );
@@ -133,9 +152,20 @@ export async function connectMcp(
       }
 
       clients.push(client);
+      registered = true;
       summary.push(`${name} (${mcpTools.length} tool${mcpTools.length === 1 ? "" : "s"})`);
     } catch (e: any) {
       onLog(`MCP "${name}" unavailable: ${e?.message ?? e}`);
+    } finally {
+      // grok review: if connect succeeded but a later step failed, the client (and
+      // its child process) would leak. Close any client we never registered.
+      if (client && !registered) {
+        try {
+          await client.close();
+        } catch {
+          /* ignore */
+        }
+      }
     }
   }
 
