@@ -16,6 +16,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Approver } from "./approval.js";
 import { renderDiff } from "./ui.js";
+import { applyEdit } from "./edit.js";
 
 const pexec = promisify(execFile);
 const root = () => process.cwd();
@@ -139,16 +140,14 @@ export function makeTools(approve: Approver, onActivity: (line: string) => void)
         } catch (e: any) {
           return `ERROR editing ${p}: ${e.message}`;
         }
-        const count = data.split(old_string).length - 1;
-        if (count === 0)
-          return `ERROR: old_string not found in ${p}. Read the file again and match exactly.`;
-        if (count > 1)
-          return `ERROR: old_string appears ${count} times in ${p}. Add surrounding context so it's unique.`;
-        const next = data.replace(old_string, new_string);
-        const ok = await approve({ title: `edit ${p}`, preview: renderDiff(data, next) });
+        // Tolerant matcher: exact → line-trimmed → whitespace-collapsed, with
+        // EOL/BOM handling + self-correcting errors (see edit.ts).
+        const result = applyEdit(data, old_string, new_string);
+        if (!result.ok) return `ERROR editing ${p}: ${result.error}`;
+        const ok = await approve({ title: `edit ${p}`, preview: renderDiff(data, result.next) });
         if (!ok) return `DECLINED: user did not approve editing ${p}.`;
         try {
-          await fs.writeFile(f, next, "utf8");
+          await fs.writeFile(f, result.next, "utf8");
         } catch (e: any) {
           return `ERROR editing ${p}: ${e.message}`;
         }
