@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // src/cli.ts — Athene CLI entry. Parses args, runs one agent turn over the task.
 import { readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { runAgent } from "./agent.js";
 import { runRepl } from "./repl.js";
 import { EFFORTS, type Effort } from "./providers.js";
@@ -13,6 +15,21 @@ function version(): string {
     return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version ?? "?";
   } catch {
     return "?";
+  }
+}
+
+// Optional per-user defaults from ~/.athene/config.json: { "defaults": { "effort":
+// "deep", "verify": true } }. CLI flags always win over these.
+function userDefaults(): { effort?: Effort; verify?: boolean } {
+  try {
+    const cfg = JSON.parse(readFileSync(path.join(os.homedir(), ".athene", "config.json"), "utf8"));
+    const d = cfg?.defaults ?? {};
+    return {
+      effort: EFFORTS.includes(d.effort) ? d.effort : undefined,
+      verify: typeof d.verify === "boolean" ? d.verify : undefined,
+    };
+  } catch {
+    return {};
   }
 }
 
@@ -54,15 +71,16 @@ type Opts = {
   help: boolean;
   version: boolean;
   effort: Effort;
+  effortExplicit: boolean; // did the user pass an effort flag?
   yolo: boolean;
   plan: boolean;
-  verify: boolean | null; // null = unset → defaults to (yolo)
+  verify: boolean | null; // null = unset → config default, else yolo
   maxSteps: number;
   prompt: string;
 };
 
 function parse(argv: string[]): Opts {
-  const o: Opts = { help: false, version: false, effort: "balanced", yolo: false, plan: false, verify: null, maxSteps: 24, prompt: "" };
+  const o: Opts = { help: false, version: false, effort: "balanced", effortExplicit: false, yolo: false, plan: false, verify: null, maxSteps: 24, prompt: "" };
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -72,9 +90,9 @@ function parse(argv: string[]): Opts {
     else if (a === "--plan") o.plan = true;
     else if (a === "--verify") o.verify = true;
     else if (a === "--no-verify") o.verify = false;
-    else if (a === "--fast") o.effort = "fast";
-    else if (a === "--deep") o.effort = "deep";
-    else if (a === "-e" || a === "--effort") o.effort = (argv[++i] as Effort) ?? "balanced";
+    else if (a === "--fast") (o.effort = "fast"), (o.effortExplicit = true);
+    else if (a === "--deep") (o.effort = "deep"), (o.effortExplicit = true);
+    else if (a === "-e" || a === "--effort") (o.effort = (argv[++i] as Effort) ?? "balanced"), (o.effortExplicit = true);
     else if (a === "--max-steps") o.maxSteps = parseInt(argv[++i] ?? "24", 10) || 24;
     else parts.push(a);
   }
@@ -103,12 +121,15 @@ async function main() {
     process.stdout.write(HELP);
     process.exit(1);
   }
+  // CLI flags win; otherwise fall back to ~/.athene/config.json defaults.
+  const def = userDefaults();
+  const effort = o.effortExplicit ? o.effort : (def.effort ?? o.effort);
   const runOpts = {
     prompt: o.prompt,
-    effort: o.effort,
+    effort,
     mode: o.plan ? ("plan" as const) : pickMode(o.yolo),
     maxSteps: o.maxSteps,
-    verify: o.verify ?? o.yolo, // default: verify when auto-approving
+    verify: o.verify ?? def.verify ?? o.yolo, // flag > config > (verify when --yolo)
   };
   try {
     if (interactive) await runRepl(runOpts);

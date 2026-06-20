@@ -25,6 +25,7 @@ const HELP = `${pc.bold("commands")}
   /plan on|off     read-only: propose changes for approval, don't apply
   /init            analyze the project and write an AGENTS.md
   /diff            show the working-tree git diff
+  /rewind [n]      undo the last n turns (conversation only; files unchanged)
   /commands        list your custom .athene/commands
   /clear           forget the conversation so far (fresh context)
   /exit            quit (or Ctrl-D)
@@ -56,6 +57,8 @@ export async function runRepl(opts: RunOpts): Promise<void> {
   let effort = opts.effort;
   let plan = opts.mode === "plan";
   let messages: any[] = [];
+  const snapshots: any[][] = []; // message-history state before each turn, for /rewind
+  const MAX_SNAPSHOTS = 30;
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   let closed = false;
@@ -111,6 +114,18 @@ export async function runRepl(opts: RunOpts): Promise<void> {
           process.stdout.write(pc.dim("context cleared.\n"));
           continue;
         }
+        if (cmd === "rewind" || cmd === "undo") {
+          const n = Math.max(1, parseInt(arg, 10) || 1);
+          let restored: any[] | null = null;
+          for (let i = 0; i < n && snapshots.length; i++) restored = snapshots.pop() ?? null;
+          if (restored) {
+            messages = restored;
+            process.stdout.write(pc.dim(`rewound — back to ${messages.length} messages (files on disk are unchanged)\n`));
+          } else {
+            process.stdout.write(pc.dim("nothing to rewind\n"));
+          }
+          continue;
+        }
         if (cmd === "effort") {
           if ((EFFORTS as string[]).includes(arg)) {
             effort = arg as Effort;
@@ -164,6 +179,8 @@ export async function runRepl(opts: RunOpts): Promise<void> {
         }
       }
 
+      snapshots.push(messages.slice()); // for /rewind (shallow — messages aren't mutated in place)
+      if (snapshots.length > MAX_SNAPSHOTS) snapshots.shift();
       messages = await session.compact(messages); // fold older turns if too long
       messages.push({ role: "user", content: taskText });
       running = new AbortController();

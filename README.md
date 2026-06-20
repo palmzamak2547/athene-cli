@@ -115,8 +115,8 @@ A working multi-step agent on free frontier models. Shipped:
   (atomic), `bash`.
 - **Interactive REPL** — `athene` (no task) keeps conversation history across
   turns; slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/init`,
-  `/clear`, plus your own `.athene/commands/*.md` templated commands
-  (`$ARGUMENTS`, `$1`…).
+  `/rewind`, `/clear`, plus your own `.athene/commands/*.md` templated commands
+  (`$ARGUMENTS`, `$1`…). `/rewind [n]` undoes the last n turns.
   Ctrl-C interrupts a running task (and quits at the idle prompt); the status
   line shows the git branch. Long sessions **auto-compact** — older turns are
   summarized (at a clean boundary, never orphaning a tool result) so the context
@@ -143,10 +143,12 @@ A working multi-step agent on free frontier models. Shipped:
   3-model loop (Claude + grok + codex) and informed by a study of frontier
   agents' documented failure modes.
 
-**Next** (frontier patterns from Codex / Claude Code / Grok Build): per-turn
-rewind (restore conversation + working tree), parallel sub-agents, and a
-config file for defaults. Then the rest of the suite — Athene Design (prompt →
-editable UI, Phase 0 live) and Athene Desktop (local + free models).
+Per-user defaults live in `~/.athene/config.json` (`"defaults": { "effort":
+"deep", "verify": true }`) — CLI flags always win.
+
+**Next:** parallel sub-agents, working-tree (git) rewind, and then the rest of
+the suite — Athene Design (prompt → editable UI, Phase 0 live) and Athene
+Desktop (local + free models).
 
 ## Development
 
