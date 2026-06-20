@@ -26,6 +26,7 @@ const HELP = `${pc.bold("commands")}
   /init            analyze the project and write an AGENTS.md
   /diff            show the working-tree git diff
   /rewind [n]      undo the last n turns (conversation only; files unchanged)
+  /undo            revert the file changes the last task made (on disk)
   /commands        list your custom .athene/commands
   /clear           forget the conversation so far (fresh context)
   /exit            quit (or Ctrl-D)
@@ -114,7 +115,7 @@ export async function runRepl(opts: RunOpts): Promise<void> {
           process.stdout.write(pc.dim("context cleared.\n"));
           continue;
         }
-        if (cmd === "rewind" || cmd === "undo") {
+        if (cmd === "rewind") {
           const n = Math.max(1, parseInt(arg, 10) || 1);
           let restored: any[] | null = null;
           for (let i = 0; i < n && snapshots.length; i++) restored = snapshots.pop() ?? null;
@@ -124,6 +125,13 @@ export async function runRepl(opts: RunOpts): Promise<void> {
           } else {
             process.stdout.write(pc.dim("nothing to rewind\n"));
           }
+          continue;
+        }
+        if (cmd === "undo") {
+          const n = await session.restoreFiles();
+          process.stdout.write(
+            pc.dim(n ? `reverted ${n} file${n === 1 ? "" : "s"} from the last task\n` : "no file changes to undo\n"),
+          );
           continue;
         }
         if (cmd === "effort") {

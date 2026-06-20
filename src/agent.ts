@@ -6,7 +6,7 @@
 // also FAIL OVER: if a free model errors before producing any visible text or
 // side-effect, we transparently retry the next candidate in the tier.
 import { streamText, generateText, stepCountIs, type LanguageModel } from "ai";
-import { readFileSync } from "node:fs";
+import { readFileSync, promises as fsp } from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 import { resolveCandidates, type Effort } from "./providers.js";
@@ -84,6 +84,8 @@ export type SessionHandle = {
   /** Summarize older turns if the conversation is too long; returns the
    *  (possibly shortened) message array. No-op below the threshold. */
   compact: (messages: any[]) => Promise<any[]>;
+  /** Revert the file changes made by the most recent task; returns the count. */
+  restoreFiles: () => Promise<number>;
   resetStats: () => void;
   close: () => Promise<void>;
 };
@@ -134,7 +136,33 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     }
     process.stderr.write(ui.noteLine(line));
   };
-  const builtin = makeTools(approve, onActivity);
+  // File checkpoints for /undo: snapshot each touched file's PRE-task content
+  // (null = it didn't exist) so the last task's file changes can be reverted.
+  const checkpoint = new Map<string, string | null>();
+  const recordCheckpoint = async (abs: string) => {
+    if (checkpoint.has(abs)) return; // keep only the first (pre-task) state
+    try {
+      checkpoint.set(abs, await fsp.readFile(abs, "utf8"));
+    } catch {
+      checkpoint.set(abs, null); // file didn't exist → undo will delete it
+    }
+  };
+  const restoreFiles = async (): Promise<number> => {
+    let n = 0;
+    for (const [p, content] of checkpoint) {
+      try {
+        if (content === null) await fsp.rm(p, { force: true });
+        else await fsp.writeFile(p, content, "utf8");
+        n++;
+      } catch {
+        /* best effort */
+      }
+    }
+    checkpoint.clear();
+    return n;
+  };
+
+  const builtin = makeTools(approve, onActivity, recordCheckpoint);
   const search = makeSearchTools(onActivity); // grep + glob (read-only, no approval)
 
   // MCP: connect any configured servers (./athene.json or ~/.athene/config.json);
@@ -243,6 +271,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     files.clear();
     commands = 0;
     mcpCalls = 0;
+    checkpoint.clear(); // fresh per task → /undo reverts THIS task's file changes
 
     const first = await runModelPass(messages, showBanner, signal);
     const allResponse = [...first.responseMessages];
@@ -326,6 +355,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     },
     runTask,
     compact,
+    restoreFiles,
     resetStats: () => {
       files.clear();
       commands = 0;

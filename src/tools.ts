@@ -77,7 +77,20 @@ export function destructiveReason(command: string): string | null {
   return null;
 }
 
-export function makeTools(approve: Approver, onActivity: (line: string) => void) {
+export function makeTools(
+  approve: Approver,
+  onActivity: (line: string) => void,
+  // Called with a resolved path right BEFORE a mutation, so the session can
+  // snapshot the pre-edit state for /undo. Best-effort; never blocks the write.
+  recordCheckpoint?: (absPath: string) => Promise<void>,
+) {
+  const checkpoint = async (f: string) => {
+    try {
+      await recordCheckpoint?.(f);
+    } catch {
+      /* checkpointing must never break a write */
+    }
+  };
   // onActivity is best-effort telemetry — never let it turn a successful op into
   // a reported failure, so it runs AFTER the real result is in hand.
   const note = (line: string) => {
@@ -147,6 +160,7 @@ export function makeTools(approve: Approver, onActivity: (line: string) => void)
           preview: renderDiff(old, content),
         });
         if (!ok) return `DECLINED: user did not approve writing ${p}.`;
+        await checkpoint(f);
         try {
           await fs.mkdir(path.dirname(f), { recursive: true });
           await fs.writeFile(f, content, "utf8");
@@ -183,6 +197,7 @@ export function makeTools(approve: Approver, onActivity: (line: string) => void)
         if (!result.ok) return `ERROR editing ${p}: ${result.error}`;
         const ok = await approve({ title: `edit ${p}`, preview: renderDiff(data, result.next) });
         if (!ok) return `DECLINED: user did not approve editing ${p}.`;
+        await checkpoint(f);
         try {
           await fs.writeFile(f, result.next, "utf8");
         } catch (e: any) {
@@ -224,6 +239,7 @@ export function makeTools(approve: Approver, onActivity: (line: string) => void)
           preview: renderDiff(data, cur),
         });
         if (!ok) return `DECLINED: user did not approve editing ${p}.`;
+        await checkpoint(f);
         try {
           await fs.writeFile(f, cur, "utf8");
         } catch (e: any) {
