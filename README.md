@@ -40,6 +40,8 @@ npm run athene -- "explain what this repo does"
 ```
 athene                  interactive session (in a terminal)
 athene "<task>"         run a single task
+athene index            build the semantic code index (powers search_code)
+athene search "<q>"     semantic code search, no agent
 
   -e, --effort <fast|balanced|deep>   model tier (default: balanced)
       --fast / --deep                 shorthands
@@ -144,6 +146,11 @@ A working multi-step agent on free frontier models. Shipped:
   model executes it. aider's split: better edits, and you can pair a `deep`
   architect with a `--fast` editor to save cost. Fails over across the deep tier
   so a throttled planner never leaves a truncated plan.
+- **Semantic code search** (`search_code` tool · `athene index` / `athene search`)
+  — find code by *meaning* ("where are payments verified", "the failover logic"),
+  not just exact strings. Embeds the repo with NVIDIA's free code-embedding NIM
+  into a local cosine index (no vector DB) — the capability Cursor/Continue are
+  known for. Complements `grep` (exact) and `symbols` (structure).
 - **Sub-agents** (`task` tool) — the agent delegates a big self-contained sub-job
   to a fresh sub-agent with its own context; only the sub-agent's report comes
   back, so the main context stays lean. One level deep (no recursion); the

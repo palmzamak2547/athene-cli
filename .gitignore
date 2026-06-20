@@ -3,3 +3,6 @@ dist/
 .env
 .env.*
 *.log
+
+# semantic code index (rebuildable via `athene index`)
+.athene/

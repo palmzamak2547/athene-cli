@@ -42,6 +42,8 @@ Usage
   athene -c, --continue   resume the last session for this directory
   athene "<task>"         run a single task
   athene serve [--port N] [--yolo]   headless agent server (localhost HTTP/SSE)
+  athene index            build the semantic code index (powers search_code)
+  athene search "<q>"     semantic code search (no agent)
   athene "<task>" [options]
 
 Options
@@ -120,6 +122,34 @@ async function main() {
     const port = pi >= 0 ? parseInt(argv[pi + 1] ?? "", 10) || 4141 : 4141;
     await runServer({ port, yolo: argv.includes("--yolo") || argv.includes("-y") });
     return; // runs until killed
+  }
+  // `athene index` — build the semantic code index for this directory.
+  if (argv[0] === "index") {
+    if (!process.env.NVIDIA_API_KEY) {
+      process.stderr.write("Semantic index needs NVIDIA_API_KEY (free at build.nvidia.com).\n");
+      process.exit(1);
+    }
+    const { buildIndex } = await import("./semantic.js");
+    process.stderr.write("Building semantic index…\n");
+    try {
+      const r = await buildIndex((m) => process.stderr.write(`  ${m}\r`));
+      process.stderr.write(`\nIndexed ${r.chunks} chunks from ${r.files} files${r.capped ? " (capped)" : ""}. search_code is ready.\n`);
+    } catch (e: any) {
+      process.stderr.write(`\nindex failed: ${e?.message ?? e}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+  // `athene search "<query>"` — semantic code search without the agent.
+  if (argv[0] === "search") {
+    const q = argv.slice(1).join(" ").trim();
+    if (!q) {
+      process.stderr.write('Usage: athene search "<what you are looking for>"\n');
+      process.exit(1);
+    }
+    const { runSearch } = await import("./semantic.js");
+    process.stdout.write((await runSearch(q, 8, { autobuild: true, note: (m) => process.stderr.write(`  ${m}\r`) })) + "\n");
+    return;
   }
   const o = parse(argv);
   if (o.version) {

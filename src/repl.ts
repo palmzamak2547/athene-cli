@@ -17,6 +17,7 @@ import { openSession, type RunOpts } from "./agent.js";
 import { EFFORTS, type Effort } from "./providers.js";
 import { loadCommands, expandCommand } from "./commands.js";
 import { saveSession } from "./sessionstore.js";
+import { buildIndex, invalidateSemanticCache } from "./semantic.js";
 
 const pexec = promisify(execFile);
 
@@ -28,6 +29,7 @@ const HELP = `${pc.bold("commands")}
   /architect on|off  plan with a strong model first, then edit (better edits)
   /plan on|off     read-only: propose changes for approval, don't apply
   /init            analyze the project and write an AGENTS.md
+  /index           build the semantic code index (powers search_code)
   /diff            show the working-tree git diff
   /rewind [n]      undo the last n turns (conversation only; files unchanged)
   /undo            revert the file changes the last task made (on disk)
@@ -207,6 +209,23 @@ export async function runRepl(opts: RunOpts, initial?: any[]): Promise<void> {
         }
         if (cmd === "diff") {
           process.stdout.write((await gitDiff()) + "\n");
+          continue;
+        }
+        if (cmd === "index") {
+          if (!process.env.NVIDIA_API_KEY) {
+            process.stdout.write(pc.yellow("semantic index needs NVIDIA_API_KEY (free at build.nvidia.com)\n"));
+            continue;
+          }
+          process.stdout.write(pc.dim("building semantic index…\n"));
+          try {
+            const r = await buildIndex((m) => process.stderr.write(pc.dim(`   ${m}\r`)));
+            invalidateSemanticCache(); // next search_code reloads the fresh index
+            process.stdout.write(
+              pc.dim(`\nindexed ${r.chunks} chunks from ${r.files} files${r.capped ? " (capped)" : ""} → search_code is ready\n`),
+            );
+          } catch (e: any) {
+            process.stdout.write(pc.yellow(`index failed: ${e?.message ?? e}\n`));
+          }
           continue;
         }
         if (cmd === "commands") {

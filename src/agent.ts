@@ -13,6 +13,7 @@ import { resolveCandidates, type Effort } from "./providers.js";
 import { makeTools } from "./tools.js";
 import { makeSearchTools } from "./search.js";
 import { makeSymbolsTool } from "./symbols.js";
+import { makeSemanticTool } from "./semantic.js";
 import { makeTodoTool } from "./todo.js";
 import { makeSubagentTool } from "./subagent.js";
 import { createApprover, type ApprovalMode } from "./approval.js";
@@ -184,6 +185,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     ...builtin,
     ...search,
     ...makeSymbolsTool(onActivity),
+    ...makeSemanticTool(onActivity), // search_code (NIM code embeddings) — read-only
     ...makeTodoTool(),
     ...mcp.tools,
     ...skills.tools,
