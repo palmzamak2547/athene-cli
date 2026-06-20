@@ -1,5 +1,5 @@
 {
-  "name": "athene",
+  "name": "athene-cli",
   "version": "0.0.1",
   "description": "Athene — a free, frontier-class, MCP-native terminal coding agent. Part of the open Athene suite.",
   "type": "module",
@@ -9,9 +9,18 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/palmzamak2547/athene-cli.git"
+  },
+  "homepage": "https://github.com/palmzamak2547/athene-cli#readme",
   "scripts": {
     "athene": "tsx src/cli.ts",
     "build": "tsup src/cli.ts --format esm --target node20 --clean --no-splitting",
+    "prepublishOnly": "npm run build",
     "start": "node dist/cli.js",
     "typecheck": "tsc --noEmit"
   },
