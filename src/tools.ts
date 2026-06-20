@@ -17,9 +17,11 @@ import { promisify } from "node:util";
 import type { Approver } from "./approval.js";
 import { renderDiff } from "./ui.js";
 import { applyEdit } from "./edit.js";
+import { isImagePath } from "./vision.js";
 
 const pexec = promisify(execFile);
 const root = () => process.cwd();
+const NUL = String.fromCharCode(0); // binary sniff char, never typed as a raw byte
 
 const CAP = 60_000;
 const clip = (s: string, n = CAP) =>
@@ -118,8 +120,13 @@ export function makeTools(
         if (!f) return escapeErr(p);
         if (isSecretFile(p))
           return `ERROR: refusing to read ${p} — it looks like a secrets file. Athene won't load secrets into the model (rename to *.example for a template, or open a specific non-secret file).`;
+        if (isImagePath(p))
+          return `ERROR: ${p} is a binary image — read_file only reads text. To analyze an image, mention it as @${p} in your message and a vision model will describe it (don't read it as text).`;
         try {
-          return clip(await fs.readFile(f, "utf8"));
+          const text = await fs.readFile(f, "utf8");
+          if (text.includes(NUL))
+            return `ERROR: ${p} looks like a binary file (not UTF-8 text) — read_file only reads text. Don't retry reading it as text.`;
+          return clip(text);
         } catch (e: any) {
           return `ERROR reading ${p}: ${e.message}`;
         }

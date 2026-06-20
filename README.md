@@ -151,6 +151,9 @@ A working multi-step agent on free frontier models. Shipped:
   not just exact strings. Embeds the repo with NVIDIA's free code-embedding NIM
   into a local cosine index (no vector DB) — the capability Cursor/Continue are
   known for. Complements `grep` (exact) and `symbols` (structure).
+- **Image input** — mention an image (`@mockup.png`, `@screenshot.png`) and a free
+  vision NIM reads it into the prompt: "implement this mockup", "what's wrong with
+  this UI". Works in a task or the REPL (Cline/Cursor's vision, free).
 - **Sub-agents** (`task` tool) — the agent delegates a big self-contained sub-job
   to a fresh sub-agent with its own context; only the sub-agent's report comes
   back, so the main context stays lean. One level deep (no recursion); the

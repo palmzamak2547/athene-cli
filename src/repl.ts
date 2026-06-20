@@ -18,6 +18,7 @@ import { EFFORTS, type Effort } from "./providers.js";
 import { loadCommands, expandCommand } from "./commands.js";
 import { saveSession } from "./sessionstore.js";
 import { buildIndex, invalidateSemanticCache } from "./semantic.js";
+import { expandMentions } from "./mentions.js";
 
 const pexec = promisify(execFile);
 
@@ -37,7 +38,7 @@ const HELP = `${pc.bold("commands")}
   /commands        list your custom .athene/commands
   /clear           forget the conversation so far (fresh context)
   /exit            quit (or Ctrl-D)
-Anything else is a task. Mention a file inline with @path/to/file to add it.
+Anything else is a task. Mention a file with @path/to/file (an @image.png is read by a vision model).
 History is kept across turns — refer back freely.`;
 
 const INIT_PROMPT = `Analyze this project and create (or improve, if it exists) an AGENTS.md at the repo root. Inspect package.json / README / config files and sample a few source files first. Document concisely: what the project is, the stack, how to build / test / run it, the key conventions, and the directory layout. Keep it tight — AGENTS.md is loaded into agent context every session, so signal over completeness.`;
@@ -58,29 +59,6 @@ async function gitDiff(): Promise<string> {
   } catch (e: any) {
     return pc.yellow(`/diff needs a git repo (${e?.message ?? e}).`);
   }
-}
-
-// Expand `@path/to/file` mentions in a prompt: inline the file's content (the
-// aider /add + Claude Code @ convenience). Confined to cwd; a token that isn't a
-// readable file is left as literal text.
-async function expandMentions(text: string): Promise<string> {
-  const tokens = [...new Set([...text.matchAll(/@([\w./\-]+)/g)].map((m) => m[1]))];
-  if (tokens.length === 0) return text;
-  const root = process.cwd();
-  const blocks: string[] = [];
-  for (const rel of tokens) {
-    const abs = path.resolve(root, rel);
-    if (!abs.startsWith(root)) continue; // confine to cwd
-    try {
-      const content = await fs.readFile(abs, "utf8");
-      blocks.push(`# ${rel}\n${content.length > 16000 ? content.slice(0, 16000) + "\n…(truncated)" : content}`);
-    } catch {
-      /* not a readable file — leave the @token as plain text */
-    }
-  }
-  if (blocks.length === 0) return text;
-  process.stderr.write(pc.dim(` (added ${blocks.length} mentioned file${blocks.length === 1 ? "" : "s"})\n`));
-  return `${text}\n\n--- mentioned files ---\n${blocks.join("\n\n")}`;
 }
 
 export async function runRepl(opts: RunOpts, initial?: any[]): Promise<void> {

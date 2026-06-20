@@ -14,6 +14,7 @@ import { makeTools } from "./tools.js";
 import { makeSearchTools } from "./search.js";
 import { makeSymbolsTool } from "./symbols.js";
 import { makeSemanticTool } from "./semantic.js";
+import { expandMentions } from "./mentions.js";
 import { makeTodoTool } from "./todo.js";
 import { makeSubagentTool } from "./subagent.js";
 import { createApprover, type ApprovalMode } from "./approval.js";
@@ -101,7 +102,9 @@ export async function runAgent(opts: RunOpts): Promise<void> {
   const onSig = () => controller.abort();
   process.on("SIGINT", onSig); // Ctrl-C → interrupt the task, exit cleanly
   try {
-    await session.runTask([{ role: "user", content: opts.prompt }], true, controller.signal);
+    // Expand @file / @image.png mentions (images are read by a vision model).
+    const prompt = await expandMentions(opts.prompt);
+    await session.runTask([{ role: "user", content: prompt }], true, controller.signal);
   } finally {
     process.off("SIGINT", onSig);
     await session.close();
