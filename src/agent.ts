@@ -29,7 +29,7 @@ Working method:
 - INSPECT before you change: grep (search contents), glob (find files), read_file, list_dir — prefer these over bash for search.
 - Make the SMALLEST correct change. Prefer edit_file (exact unique match) over rewriting whole files; use multi_edit for several edits to one file. NEVER delete or rewrite comments or code unrelated to the request — "clean up" is out of scope unless explicitly asked.
 - Verify before claiming done: when it's cheap, run the build / tests and read the REAL output. Never report success for something you did not verify. If a check fails, fix the root cause — never make it pass by weakening, deleting, or mocking away the test or the check itself.
-- If a tool result says DECLINED or BLOCKED, the user refused — do NOT claim you made the change; report it was skipped and stop.
+- If a tool result says DECLINED or BLOCKED, the user refused — do NOT claim you made the change; report it was skipped and stop. If it is DECLINED for "plan mode", do not retry — present a concise numbered plan of the changes you would make, then stop and wait for approval.
 - Keep answers short — a few lines for simple things, no preamble or filler. End with a one-line summary of what you did (or why you could not).`;
 
 export type RunOpts = {
@@ -49,6 +49,7 @@ const MAX_VERIFY_ROUNDS = 2;
 export type SessionHandle = {
   setEffort: (e: Effort) => void;
   setVerify: (on: boolean) => void;
+  setPlan: (on: boolean) => void;
   /** Run one task to completion (failover + optional verify-and-fix). Returns
    *  every assistant/tool message produced (incl. fix rounds), so the REPL can
    *  append them to its history. */
@@ -209,6 +210,9 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     },
     setVerify: (on) => {
       verifyOn = on;
+    },
+    setPlan: (on) => {
+      approve.setPlan(on);
     },
     runTask,
     resetStats: () => {

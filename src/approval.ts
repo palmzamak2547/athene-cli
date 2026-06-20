@@ -11,14 +11,18 @@
 import * as readline from "node:readline/promises";
 import pc from "picocolors";
 
-export type ApprovalMode = "auto" | "ask" | "deny";
+export type ApprovalMode = "auto" | "ask" | "deny" | "plan";
 
 export type ApprovalRequest = {
   title: string; // e.g. "edit src/app.ts" / "run: npm test"
   preview: string; // rendered diff / content / command (already colorized)
 };
 
-export type Approver = (req: ApprovalRequest) => Promise<boolean>;
+// The approver is a function with a runtime `setPlan` toggle so the REPL's
+// `/plan` can flip plan mode on/off without rebuilding the session.
+export type Approver = ((req: ApprovalRequest) => Promise<boolean>) & {
+  setPlan: (on: boolean) => void;
+};
 
 export class ApprovalAbort extends Error {
   constructor() {
@@ -29,12 +33,19 @@ export class ApprovalAbort extends Error {
 
 export function createApprover(mode: ApprovalMode): Approver {
   let auto = mode === "auto";
+  let plan = mode === "plan";
 
-  return async (req: ApprovalRequest): Promise<boolean> => {
+  const fn = async (req: ApprovalRequest): Promise<boolean> => {
     // Always show what's about to happen.
     process.stderr.write(`\n ${pc.bold(pc.yellow("▸ " + req.title))}\n`);
     if (req.preview.trim()) process.stderr.write(req.preview.replace(/\n?$/, "\n"));
 
+    if (plan) {
+      // Plan mode: never apply. The model gets DECLINED and (per the system
+      // prompt) presents a plan instead of editing.
+      process.stderr.write(pc.dim(" (plan mode — proposing, not applying)\n\n"));
+      return false;
+    }
     if (auto) {
       process.stderr.write(pc.dim(" (auto-approved)\n\n"));
       return true;
@@ -75,6 +86,11 @@ export function createApprover(mode: ApprovalMode): Approver {
       rl.close();
     }
   };
+
+  (fn as Approver).setPlan = (on: boolean) => {
+    plan = on;
+  };
+  return fn as Approver;
 }
 
 // Decide the mode from flags + whether we have an interactive terminal.

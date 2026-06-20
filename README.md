@@ -44,6 +44,8 @@ athene "<task>"         run a single task
   -e, --effort <fast|balanced|deep>   model tier (default: balanced)
       --fast / --deep                 shorthands
   -y, --yolo                          allow file writes + shell commands (default: read-only)
+      --plan                          read-only: propose a plan for approval, don't edit
+      --verify / --no-verify          run the project's check after a file change + self-correct
       --max-steps <n>                 max agent steps (default: 24)
   -h, --help
 ```
@@ -111,7 +113,10 @@ A working multi-step agent on free frontier models. Shipped:
   exact → line-trimmed → whitespace matcher, EOL/BOM-aware), `multi_edit`
   (atomic), `bash`.
 - **Interactive REPL** — `athene` (no task) keeps conversation history across
-  turns; slash commands `/effort`, `/verify`, `/clear`, `/help`.
+  turns; slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/clear`, plus
+  your own `.athene/commands/*.md` templated commands (`$ARGUMENTS`, `$1`…).
+- **Plan mode** (`--plan` / `/plan`) — explore read-only and propose a plan for
+  approval; every edit/command is declined until you turn it off.
 - **Verify loop** — after a file change, runs the project's check (typecheck /
   build / cargo check / go build) and feeds failures back to self-correct;
   on by default under `--yolo` (`--verify` / `--no-verify` to override). It
@@ -128,9 +133,10 @@ A working multi-step agent on free frontier models. Shipped:
   3-model loop (Claude + grok + codex) and informed by a study of frontier
   agents' documented failure modes.
 
-**Next** (frontier patterns from Codex / Claude Code / Grok Build): custom
-`.athene/commands/*.md` slash commands, plan mode (read-only until approved),
-`/diff` review, and Esc-to-interrupt + rewind.
+**Next** (frontier patterns from Codex / Claude Code / Grok Build): Esc-to-
+interrupt + per-turn rewind, a richer status line (git branch · context), and
+subagent context-isolation for big tasks. Then the rest of the suite — Athene
+Design (prompt → editable UI) and Athene Desktop (local + free models).
 
 ## Development
 
