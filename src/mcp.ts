@@ -43,7 +43,18 @@ async function readJson(file: string): Promise<Config | null> {
 export async function loadMcpConfig(): Promise<Record<string, McpServerConfig>> {
   const global = await readJson(path.join(os.homedir(), ".athene", "config.json"));
   const local = await readJson(path.join(process.cwd(), "athene.json"));
-  const merged = { ...(global?.mcpServers ?? {}), ...(local?.mcpServers ?? {}) };
+  const localServers = local?.mcpServers ?? {};
+  // SECURITY (codex review): project-local MCP servers can spawn a process or
+  // connect to a remote — merely opening an untrusted repo would otherwise auto-
+  // connect to attacker-controlled infrastructure before any tool is approved.
+  // Honor ./athene.json servers ONLY when the user explicitly trusts this project.
+  const trustLocal = !!process.env.ATHENE_TRUST_PROJECT_MCP;
+  if (Object.keys(localServers).length > 0 && !trustLocal) {
+    process.stderr.write(
+      "\x1b[2m note: ./athene.json declares MCP servers — NOT auto-connected (untrusted project). Set ATHENE_TRUST_PROJECT_MCP=1 to enable them here.\x1b[22m\n",
+    );
+  }
+  const merged = { ...(global?.mcpServers ?? {}), ...(trustLocal ? localServers : {}) };
   return substituteEnv(merged);
 }
 

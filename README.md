@@ -83,6 +83,11 @@ recommended set (Context7 = version-correct library docs · GitMCP = any-repo so
 fetch · sequential-thinking · HuggingFace). Context7 + GitMCP are the biggest
 out-of-the-box precision wins for a coding agent, and need no key.
 
+For safety, MCP servers declared in a **project's** `./athene.json` are NOT
+auto-connected (opening an untrusted repo shouldn't start attacker-controlled
+infrastructure) — set `ATHENE_TRUST_PROJECT_MCP=1` to enable them. Your global
+`~/.athene/config.json` servers always load.
+
 ## Skills & project memory
 
 Athene reads the **same skill bank Claude Code + grok share** — `~/.claude/skills`
