@@ -122,7 +122,8 @@ A working multi-step agent on free frontier models. Shipped:
   exact → line-trimmed → whitespace matcher, EOL/BOM-aware), `multi_edit`
   (atomic), `bash`.
 - **Interactive REPL** — `athene` (no task) keeps conversation history across
-  turns; slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/init`,
+  turns and **persists** it (`athene --continue` resumes the last session for
+  this directory); slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/init`,
   `/rewind`, `/undo`, `/compact`, `/clear`, plus your own `.athene/commands/*.md`
   templated commands (`$ARGUMENTS`, `$1`…). `/rewind [n]` undoes conversation
   turns; `/undo` reverts the file changes the last task made on disk (precise —

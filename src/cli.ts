@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { runAgent } from "./agent.js";
 import { runRepl } from "./repl.js";
+import { loadLatestSession } from "./sessionstore.js";
 import { EFFORTS, type Effort } from "./providers.js";
 import { pickMode } from "./approval.js";
 
@@ -37,6 +38,7 @@ const HELP = `athene — a free, frontier-class terminal coding agent (Athene su
 
 Usage
   athene                  start an interactive session (in a terminal)
+  athene -c, --continue   resume the last session for this directory
   athene "<task>"         run a single task
   athene serve [--port N] [--yolo]   headless agent server (localhost HTTP/SSE)
   athene "<task>" [options]
@@ -75,13 +77,14 @@ type Opts = {
   effortExplicit: boolean; // did the user pass an effort flag?
   yolo: boolean;
   plan: boolean;
+  cont: boolean; // --continue: resume the last session for this dir
   verify: boolean | null; // null = unset → config default, else yolo
   maxSteps: number;
   prompt: string;
 };
 
 function parse(argv: string[]): Opts {
-  const o: Opts = { help: false, version: false, effort: "balanced", effortExplicit: false, yolo: false, plan: false, verify: null, maxSteps: 24, prompt: "" };
+  const o: Opts = { help: false, version: false, effort: "balanced", effortExplicit: false, yolo: false, plan: false, cont: false, verify: null, maxSteps: 24, prompt: "" };
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -89,6 +92,7 @@ function parse(argv: string[]): Opts {
     else if (a === "-v" || a === "--version") o.version = true;
     else if (a === "-y" || a === "--yolo") o.yolo = true;
     else if (a === "--plan") o.plan = true;
+    else if (a === "-c" || a === "--continue") o.cont = true;
     else if (a === "--verify") o.verify = true;
     else if (a === "--no-verify") o.verify = false;
     else if (a === "--fast") (o.effort = "fast"), (o.effortExplicit = true);
@@ -142,8 +146,10 @@ async function main() {
     verify: o.verify ?? def.verify ?? o.yolo, // flag > config > (verify when --yolo)
   };
   try {
-    if (interactive) await runRepl(runOpts);
-    else await runAgent(runOpts);
+    if (interactive) {
+      const initial = o.cont ? ((await loadLatestSession()) ?? undefined) : undefined;
+      await runRepl(runOpts, initial);
+    } else await runAgent(runOpts);
   } catch (e: any) {
     process.stderr.write(`\n${e?.message ?? e}\n`);
     process.exit(1);

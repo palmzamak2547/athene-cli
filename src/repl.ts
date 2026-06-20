@@ -16,6 +16,7 @@ import pc from "picocolors";
 import { openSession, type RunOpts } from "./agent.js";
 import { EFFORTS, type Effort } from "./providers.js";
 import { loadCommands, expandCommand } from "./commands.js";
+import { saveSession } from "./sessionstore.js";
 
 const pexec = promisify(execFile);
 
@@ -79,12 +80,13 @@ async function expandMentions(text: string): Promise<string> {
   return `${text}\n\n--- mentioned files ---\n${blocks.join("\n\n")}`;
 }
 
-export async function runRepl(opts: RunOpts): Promise<void> {
+export async function runRepl(opts: RunOpts, initial?: any[]): Promise<void> {
   const session = await openSession(opts);
   const commands = await loadCommands();
   let effort = opts.effort;
   let plan = opts.mode === "plan";
-  let messages: any[] = [];
+  let messages: any[] = initial && initial.length ? initial.slice() : [];
+  const sessionId = `${Date.now()}-${Math.floor(Math.random() * 1e6).toString(36)}`;
   const snapshots: any[][] = []; // message-history state before each turn, for /rewind
   const MAX_SNAPSHOTS = 30;
 
@@ -114,6 +116,9 @@ export async function runRepl(opts: RunOpts): Promise<void> {
   process.stdout.write(
     `\n ${pc.bold(pc.cyan("🦉 Athene"))} ${pc.dim("— interactive. /help for commands, /exit to quit.")}${cmdNote}\n`,
   );
+  if (initial?.length) {
+    process.stdout.write(pc.dim(` (resumed ${initial.length} messages — /clear for a fresh start)\n`));
+  }
 
   try {
     while (!closed) {
@@ -238,6 +243,7 @@ export async function runRepl(opts: RunOpts): Promise<void> {
       } finally {
         running = null;
       }
+      void saveSession(sessionId, messages); // persist for `athene --continue`
     }
   } finally {
     await shutdown();
