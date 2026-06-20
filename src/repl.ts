@@ -52,7 +52,7 @@ export async function runRepl(opts: RunOpts): Promise<void> {
   const commands = await loadCommands();
   let effort = opts.effort;
   let plan = opts.mode === "plan";
-  const messages: any[] = [];
+  let messages: any[] = [];
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   let closed = false;
@@ -157,6 +157,7 @@ export async function runRepl(opts: RunOpts): Promise<void> {
         }
       }
 
+      messages = await session.compact(messages); // fold older turns if too long
       messages.push({ role: "user", content: taskText });
       running = new AbortController();
       try {

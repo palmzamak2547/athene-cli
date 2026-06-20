@@ -5,7 +5,7 @@
 // spinner, tool lines, run summary) and gate mutations through the approver. We
 // also FAIL OVER: if a free model errors before producing any visible text or
 // side-effect, we transparently retry the next candidate in the tier.
-import { streamText, stepCountIs, type LanguageModel } from "ai";
+import { streamText, generateText, stepCountIs, type LanguageModel } from "ai";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
@@ -43,6 +43,11 @@ export type RunOpts = {
 };
 
 const MAX_VERIFY_ROUNDS = 2;
+const COMPACT_THRESHOLD_CHARS = 200_000; // ~50k tokens — conservative for free-model context windows
+const KEEP_RECENT = 6; // recent messages kept verbatim after a compaction
+
+const convoChars = (msgs: any[]): number =>
+  msgs.reduce((n, m) => n + JSON.stringify(m?.content ?? "").length, 0);
 
 // Current git branch (read .git/HEAD directly — no shelling out), or null.
 function gitBranch(): string | null {
@@ -71,6 +76,9 @@ export type SessionHandle = {
     showBanner: boolean,
     signal?: AbortSignal,
   ) => Promise<{ ok: boolean; responseMessages: any[] }>;
+  /** Summarize older turns if the conversation is too long; returns the
+   *  (possibly shortened) message array. No-op below the threshold. */
+  compact: (messages: any[]) => Promise<any[]>;
   resetStats: () => void;
   close: () => Promise<void>;
 };
@@ -231,6 +239,40 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     return { ok: true, responseMessages: allResponse };
   };
 
+  // Auto-compaction: when the conversation grows past the threshold, summarize
+  // the older turns and keep the recent ones verbatim — so long sessions don't
+  // overflow the model's context (the #1 documented agent failure). The cut is
+  // made at a user-message boundary so a tool-call never loses its tool-result.
+  const compact = async (messages: any[]): Promise<any[]> => {
+    if (messages.length <= KEEP_RECENT + 2 || convoChars(messages) < COMPACT_THRESHOLD_CHARS) {
+      return messages;
+    }
+    let cut = messages.length - KEEP_RECENT;
+    while (cut > 0 && messages[cut]?.role !== "user") cut--; // clean boundary
+    if (cut <= 1) return messages; // nothing safe to fold
+    const head = messages.slice(0, cut);
+    const tail = messages.slice(cut);
+    const cands = resolveCandidates("fast");
+    if (cands.length === 0) return messages;
+    try {
+      const flat = head
+        .map((m) => `[${m.role}] ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`)
+        .join("\n\n")
+        .slice(0, 120_000);
+      const { text } = await generateText({
+        model: cands[0].model,
+        system:
+          "Summarize this coding-session transcript for continuity. PRESERVE: the task/goal, decisions made, files created or edited (with exact paths), key facts learned, commands run, and anything still in progress or unresolved. Be concise but lose nothing actionable. Output prose only, no preamble.",
+        prompt: flat,
+        maxRetries: 1,
+      });
+      process.stderr.write(ui.noteLine(`compacted ${head.length} earlier messages → summary`));
+      return [{ role: "user", content: `[Summary of earlier conversation]\n${text}` }, ...tail];
+    } catch {
+      return messages; // summarization failed → keep full history (safe)
+    }
+  };
+
   return {
     setEffort: (e) => {
       effort = e;
@@ -242,6 +284,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
       approve.setPlan(on);
     },
     runTask,
+    compact,
     resetStats: () => {
       files.clear();
       commands = 0;
