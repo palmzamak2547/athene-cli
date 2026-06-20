@@ -115,7 +115,9 @@ A working multi-step agent on free frontier models. Shipped:
   three effort tiers (fast / balanced / deep), runtime model rotation, and
   forced single-tool-calls so smaller models don't 400 on parallel calls.
 - **Search + edit tools** — `grep` + `glob` (ripgrep fast-path, dependency-free
-  Node fallback), `read_file`, `list_dir`, `write_file`, `edit_file` (tolerant
+  Node fallback), `symbols` (a tree-sitter-free "repo map" — outline a file/dir's
+  functions/classes/exports so the agent navigates without reading everything,
+  aider's idea), `read_file`, `list_dir`, `write_file`, `edit_file` (tolerant
   exact → line-trimmed → whitespace matcher, EOL/BOM-aware), `multi_edit`
   (atomic), `bash`.
 - **Interactive REPL** — `athene` (no task) keeps conversation history across
