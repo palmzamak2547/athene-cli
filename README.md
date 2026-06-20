@@ -47,6 +47,7 @@ athene "<task>"         run a single task
       --plan                          read-only: propose a plan for approval, don't edit
       --verify / --no-verify          run the project's check after a file change + self-correct
       --max-steps <n>                 max agent steps (default: 24)
+  -v, --version                       print version
   -h, --help
 ```
 
@@ -115,6 +116,8 @@ A working multi-step agent on free frontier models. Shipped:
 - **Interactive REPL** — `athene` (no task) keeps conversation history across
   turns; slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/clear`, plus
   your own `.athene/commands/*.md` templated commands (`$ARGUMENTS`, `$1`…).
+  Ctrl-C interrupts a running task (and quits at the idle prompt); the status
+  line shows the git branch.
 - **Plan mode** (`--plan` / `/plan`) — explore read-only and propose a plan for
   approval; every edit/command is declined until you turn it off.
 - **Verify loop** — after a file change, runs the project's check (typecheck /
@@ -133,10 +136,10 @@ A working multi-step agent on free frontier models. Shipped:
   3-model loop (Claude + grok + codex) and informed by a study of frontier
   agents' documented failure modes.
 
-**Next** (frontier patterns from Codex / Claude Code / Grok Build): Esc-to-
-interrupt + per-turn rewind, a richer status line (git branch · context), and
-subagent context-isolation for big tasks. Then the rest of the suite — Athene
-Design (prompt → editable UI) and Athene Desktop (local + free models).
+**Next** (frontier patterns from Codex / Claude Code / Grok Build): auto-context
+compaction for very long sessions, per-turn rewind, and subagent
+context-isolation for big tasks. Then the rest of the suite — Athene Design
+(prompt → editable UI, Phase 0 live) and Athene Desktop (local + free models).
 
 ## Development
 

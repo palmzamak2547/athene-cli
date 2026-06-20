@@ -56,14 +56,20 @@ export async function runRepl(opts: RunOpts): Promise<void> {
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   let closed = false;
+  let running: AbortController | null = null; // set while a task is in flight
   const shutdown = async () => {
     if (closed) return;
     closed = true;
     rl.close();
     await session.close();
   };
-  // Ctrl-C quits cleanly (closes MCP children) rather than orphaning them.
+  // Ctrl-C interrupts a running task (stay in the REPL); at the idle prompt it
+  // quits cleanly (closing MCP children rather than orphaning them).
   rl.on("SIGINT", () => {
+    if (running) {
+      running.abort();
+      return;
+    }
     void shutdown().then(() => {
       process.stdout.write(pc.dim("\nbye.\n"));
       process.exit(0);
@@ -152,13 +158,16 @@ export async function runRepl(opts: RunOpts): Promise<void> {
       }
 
       messages.push({ role: "user", content: taskText });
+      running = new AbortController();
       try {
-        const { responseMessages } = await session.runTask(messages, false);
+        const { responseMessages } = await session.runTask(messages, false, running.signal);
         if (responseMessages?.length) messages.push(...responseMessages);
         else messages.pop(); // nothing came back — drop the dangling user turn
       } catch (e: any) {
         messages.pop(); // failed turn → keep history clean; files on disk are the truth
         process.stderr.write(pc.red(`\n${e?.message ?? e}\n`));
+      } finally {
+        running = null;
       }
     }
   } finally {

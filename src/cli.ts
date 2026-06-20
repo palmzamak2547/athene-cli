@@ -1,9 +1,20 @@
 #!/usr/bin/env node
 // src/cli.ts — Athene CLI entry. Parses args, runs one agent turn over the task.
+import { readFileSync } from "node:fs";
 import { runAgent } from "./agent.js";
 import { runRepl } from "./repl.js";
 import { EFFORTS, type Effort } from "./providers.js";
 import { pickMode } from "./approval.js";
+
+// package.json ships next to dist/ in the npm tarball, so ../package.json works
+// whether running the bundled bin or src via tsx.
+function version(): string {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version ?? "?";
+  } catch {
+    return "?";
+  }
+}
 
 const HELP = `athene — a free, frontier-class terminal coding agent (Athene suite)
 
@@ -17,6 +28,7 @@ Options
       --fast                          shorthand for --effort fast
       --deep                          shorthand for --effort deep
   -y, --yolo                          auto-approve every edit + command (no prompts)
+  -v, --version                       print version and exit
       --plan                          read-only: propose a plan for approval, don't edit
       --verify / --no-verify          after a file change, run the project's check
                                       and self-correct (default: on with --yolo)
@@ -40,6 +52,7 @@ Examples
 
 type Opts = {
   help: boolean;
+  version: boolean;
   effort: Effort;
   yolo: boolean;
   plan: boolean;
@@ -49,11 +62,12 @@ type Opts = {
 };
 
 function parse(argv: string[]): Opts {
-  const o: Opts = { help: false, effort: "balanced", yolo: false, plan: false, verify: null, maxSteps: 24, prompt: "" };
+  const o: Opts = { help: false, version: false, effort: "balanced", yolo: false, plan: false, verify: null, maxSteps: 24, prompt: "" };
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") o.help = true;
+    else if (a === "-v" || a === "--version") o.version = true;
     else if (a === "-y" || a === "--yolo") o.yolo = true;
     else if (a === "--plan") o.plan = true;
     else if (a === "--verify") o.verify = true;
@@ -70,6 +84,10 @@ function parse(argv: string[]): Opts {
 
 async function main() {
   const o = parse(process.argv.slice(2));
+  if (o.version) {
+    process.stdout.write(`athene-cli v${version()}\n`);
+    process.exit(0);
+  }
   if (o.help) {
     process.stdout.write(HELP);
     process.exit(0);

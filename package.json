@@ -1,6 +1,6 @@
 {
   "name": "athene-cli",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Athene — a free, frontier-class, MCP-native terminal coding agent. Part of the open Athene suite.",
   "type": "module",
   "bin": {

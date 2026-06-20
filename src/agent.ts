@@ -6,6 +6,8 @@
 // also FAIL OVER: if a free model errors before producing any visible text or
 // side-effect, we transparently retry the next candidate in the tier.
 import { streamText, stepCountIs, type LanguageModel } from "ai";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import pc from "picocolors";
 import { resolveCandidates, type Effort } from "./providers.js";
 import { makeTools } from "./tools.js";
@@ -42,6 +44,17 @@ export type RunOpts = {
 
 const MAX_VERIFY_ROUNDS = 2;
 
+// Current git branch (read .git/HEAD directly — no shelling out), or null.
+function gitBranch(): string | null {
+  try {
+    const head = readFileSync(path.join(process.cwd(), ".git", "HEAD"), "utf8").trim();
+    const m = head.match(/^ref:\s*refs\/heads\/(.+)$/);
+    return m ? m[1] : head.slice(0, 7); // branch name, or short SHA if detached
+  } catch {
+    return null;
+  }
+}
+
 // A live agent session: tools / MCP / skills / system prompt are built ONCE,
 // then any number of turns reuse them (the one-shot CLI runs a single turn; the
 // REPL runs many, keeping conversation history so context + the KV-cache stay
@@ -53,16 +66,24 @@ export type SessionHandle = {
   /** Run one task to completion (failover + optional verify-and-fix). Returns
    *  every assistant/tool message produced (incl. fix rounds), so the REPL can
    *  append them to its history. */
-  runTask: (messages: any[], showBanner: boolean) => Promise<{ ok: boolean; responseMessages: any[] }>;
+  runTask: (
+    messages: any[],
+    showBanner: boolean,
+    signal?: AbortSignal,
+  ) => Promise<{ ok: boolean; responseMessages: any[] }>;
   resetStats: () => void;
   close: () => Promise<void>;
 };
 
 export async function runAgent(opts: RunOpts): Promise<void> {
   const session = await openSession(opts);
+  const controller = new AbortController();
+  const onSig = () => controller.abort();
+  process.on("SIGINT", onSig); // Ctrl-C → interrupt the task, exit cleanly
   try {
-    await session.runTask([{ role: "user", content: opts.prompt }], true);
+    await session.runTask([{ role: "user", content: opts.prompt }], true, controller.signal);
   } finally {
+    process.off("SIGINT", onSig);
     await session.close();
   }
 }
@@ -117,6 +138,8 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
   }
 
   const status: string[] = [];
+  const branch = gitBranch();
+  if (branch) status.push(`⎇ ${branch}`);
   if (skills.count) status.push(`${skills.count} skills`);
   if (memory) status.push(memory.name);
   if (mcp.summary.length) status.push("MCP " + mcp.summary.join(", "));
@@ -139,21 +162,24 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
 
   // One model pass = the failover loop over the tier (each pass may take many
   // internal steps). No summary here; runTask prints it once at the very end.
-  const runModelPass = async (messages: any[], showBanner: boolean) => {
+  const runModelPass = async (messages: any[], showBanner: boolean, signal?: AbortSignal) => {
     const candidates = resolveCandidates(effort);
     sideEffected = false; // per-pass scope for the failover guard (a verify-fix
     //                       pass must not inherit the first pass's mutations)
     let lastErr = "";
     for (let i = 0; i < candidates.length; i++) {
+      if (signal?.aborted) return { responseMessages: [] };
       const { model, label } = candidates[i];
       loopGuard.reset(); // fresh per model attempt (grok review)
       if (showBanner) process.stderr.write(ui.banner(label, effort, opts.mode, process.cwd()));
       else process.stderr.write(pc.dim(` ${pc.cyan("·")} ${label}\n`)); // compact (REPL)
 
-      const res = await streamOnce(model, opts, tools, system, messages);
+      const res = await streamOnce(model, opts, tools, system, messages, signal);
       if (res.ok) return { responseMessages: res.responseMessages ?? [] };
 
       lastErr = res.err ?? "unknown error";
+      // User interrupted — stop here, never fail over to another model.
+      if (signal?.aborted) return { responseMessages: res.responseMessages ?? [] };
       // If a model already mutated the workspace then failed, retrying a different
       // model would duplicate those changes. Stop instead. (grok review)
       if (sideEffected) {
@@ -167,15 +193,16 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     throw new Error(`All free models for effort "${effort}" failed. Last error: ${lastErr}`);
   };
 
-  const runTask = async (messages: any[], showBanner: boolean) => {
+  const runTask = async (messages: any[], showBanner: boolean, signal?: AbortSignal) => {
     const started = Date.now();
     taskMutatedFiles = false; // gates the verify loop; sideEffected resets per pass
 
-    const first = await runModelPass(messages, showBanner);
+    const first = await runModelPass(messages, showBanner, signal);
     const allResponse = [...first.responseMessages];
 
-    // Verify-and-fix: only when enabled, a check exists, and this task changed files.
-    if (verifyOn && verify && taskMutatedFiles) {
+    // Verify-and-fix: only when enabled, a check exists, the task changed files,
+    // and the user didn't interrupt.
+    if (verifyOn && verify && taskMutatedFiles && !signal?.aborted) {
       const convo = [...messages, ...allResponse];
       for (let round = 1; round <= MAX_VERIFY_ROUNDS; round++) {
         process.stderr.write(pc.dim(`   verifying — ${verifyCmd}\n`));
@@ -191,10 +218,10 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
         convo.push(fixMsg);
         allResponse.push(fixMsg);
         taskMutatedFiles = false;
-        const fix = await runModelPass(convo, false);
+        const fix = await runModelPass(convo, false, signal);
         convo.push(...fix.responseMessages);
         allResponse.push(...fix.responseMessages);
-        if (!taskMutatedFiles) break; // the model changed nothing → re-checking is pointless
+        if (!taskMutatedFiles || signal?.aborted) break; // no change / interrupted → stop
       }
     }
 
@@ -233,6 +260,7 @@ async function streamOnce(
   tools: Record<string, any>,
   system: string,
   messages: any[],
+  signal?: AbortSignal,
 ): Promise<{ ok: boolean; err?: string; responseMessages?: any[] }> {
   const spin = ui.makeSpinner("thinking…");
   let sawText = false;
@@ -253,6 +281,7 @@ async function streamOnce(
       messages,
       tools,
       stopWhen: stepCountIs(opts.maxSteps),
+      abortSignal: signal,
     });
 
     for await (const part of result.fullStream as AsyncIterable<any>) {
@@ -305,6 +334,12 @@ async function streamOnce(
     return { ok: true, responseMessages: await grab(result) };
   } catch (e) {
     spin.stop();
+    // User interrupt (Esc / Ctrl-C) — not a model failure; stop cleanly, no failover.
+    if (signal?.aborted) {
+      process.stdout.write("\n");
+      process.stderr.write(ui.warnLine("interrupted — stopped"));
+      return { ok: true };
+    }
     const err = stringifyErr(e);
     if (sawText) {
       process.stdout.write("\n");
