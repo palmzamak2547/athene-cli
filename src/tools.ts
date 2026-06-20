@@ -149,7 +149,8 @@ export function makeTools(
     }),
 
     write_file: tool({
-      description: "Create or overwrite a UTF-8 text file (creates parent dirs).",
+      description:
+        "Create a NEW file (or deliberately replace a whole file), creating parent dirs. To CHANGE an existing file, prefer edit_file / multi_edit — overwriting an existing file with write_file replaces ALL of it and risks deleting code you didn't mean to touch.",
       inputSchema: z.object({ path: z.string().min(1), content: z.string() }),
       execute: async ({ path: p, content }) => {
         const f = safeResolve(p);
@@ -168,6 +169,15 @@ export function makeTools(
           return `ERROR writing ${p}: ${e.message}`;
         }
         note(`wrote ${p} (${bytes(content)}b)`);
+        // Warn if an OVERWRITE removed a lot of lines — the model may have
+        // deleted unrelated code (the Cursor whole-file-rewrite failure mode).
+        if (old) {
+          const oldN = old.split("\n").length;
+          const newN = content.split("\n").length;
+          if (newN < oldN * 0.6 && oldN - newN > 5) {
+            return `OK: wrote ${bytes(content)} bytes to ${p}. ⚠️ This OVERWROTE an existing file and dropped ${oldN - newN} lines — if you did not mean to delete that code, restore it now and use edit_file for targeted changes.`;
+          }
+        }
         return `OK: wrote ${bytes(content)} bytes to ${p}`;
       },
     }),
