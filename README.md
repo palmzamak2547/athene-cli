@@ -123,10 +123,11 @@ A working multi-step agent on free frontier models. Shipped:
   (atomic), `bash`.
 - **Interactive REPL** — `athene` (no task) keeps conversation history across
   turns; slash commands `/effort`, `/verify`, `/plan`, `/diff`, `/init`,
-  `/rewind`, `/undo`, `/clear`, plus your own `.athene/commands/*.md` templated
-  commands (`$ARGUMENTS`, `$1`…). `/rewind [n]` undoes conversation turns;
-  `/undo` reverts the file changes the last task made on disk (precise — only
-  the files the agent touched, no git needed).
+  `/rewind`, `/undo`, `/compact`, `/clear`, plus your own `.athene/commands/*.md`
+  templated commands (`$ARGUMENTS`, `$1`…). `/rewind [n]` undoes conversation
+  turns; `/undo` reverts the file changes the last task made on disk (precise —
+  only the files the agent touched, no git needed). Mention a file inline with
+  `@path/to/file` to drop it into context.
   Ctrl-C interrupts a running task (and quits at the idle prompt); the status
   line shows the git branch. Long sessions **auto-compact** — older turns are
   summarized (at a clean boundary, never orphaning a tool result) so the context

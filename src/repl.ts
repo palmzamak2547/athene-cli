@@ -9,6 +9,8 @@
 // templated tasks.
 import * as readline from "node:readline/promises";
 import { execFile } from "node:child_process";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import pc from "picocolors";
 import { openSession, type RunOpts } from "./agent.js";
@@ -27,10 +29,12 @@ const HELP = `${pc.bold("commands")}
   /diff            show the working-tree git diff
   /rewind [n]      undo the last n turns (conversation only; files unchanged)
   /undo            revert the file changes the last task made (on disk)
+  /compact         summarize the conversation now to free up context
   /commands        list your custom .athene/commands
   /clear           forget the conversation so far (fresh context)
   /exit            quit (or Ctrl-D)
-Anything else is a task. History is kept across turns — refer back freely.`;
+Anything else is a task. Mention a file inline with @path/to/file to add it.
+History is kept across turns — refer back freely.`;
 
 const INIT_PROMPT = `Analyze this project and create (or improve, if it exists) an AGENTS.md at the repo root. Inspect package.json / README / config files and sample a few source files first. Document concisely: what the project is, the stack, how to build / test / run it, the key conventions, and the directory layout. Keep it tight — AGENTS.md is loaded into agent context every session, so signal over completeness.`;
 
@@ -50,6 +54,29 @@ async function gitDiff(): Promise<string> {
   } catch (e: any) {
     return pc.yellow(`/diff needs a git repo (${e?.message ?? e}).`);
   }
+}
+
+// Expand `@path/to/file` mentions in a prompt: inline the file's content (the
+// aider /add + Claude Code @ convenience). Confined to cwd; a token that isn't a
+// readable file is left as literal text.
+async function expandMentions(text: string): Promise<string> {
+  const tokens = [...new Set([...text.matchAll(/@([\w./\-]+)/g)].map((m) => m[1]))];
+  if (tokens.length === 0) return text;
+  const root = process.cwd();
+  const blocks: string[] = [];
+  for (const rel of tokens) {
+    const abs = path.resolve(root, rel);
+    if (!abs.startsWith(root)) continue; // confine to cwd
+    try {
+      const content = await fs.readFile(abs, "utf8");
+      blocks.push(`# ${rel}\n${content.length > 16000 ? content.slice(0, 16000) + "\n…(truncated)" : content}`);
+    } catch {
+      /* not a readable file — leave the @token as plain text */
+    }
+  }
+  if (blocks.length === 0) return text;
+  process.stderr.write(pc.dim(` (added ${blocks.length} mentioned file${blocks.length === 1 ? "" : "s"})\n`));
+  return `${text}\n\n--- mentioned files ---\n${blocks.join("\n\n")}`;
 }
 
 export async function runRepl(opts: RunOpts): Promise<void> {
@@ -134,6 +161,14 @@ export async function runRepl(opts: RunOpts): Promise<void> {
           );
           continue;
         }
+        if (cmd === "compact") {
+          const before = messages.length;
+          messages = await session.compact(messages);
+          process.stdout.write(
+            pc.dim(messages.length < before ? `compacted ${before} → ${messages.length} messages\n` : "conversation is small — nothing to compact\n"),
+          );
+          continue;
+        }
         if (cmd === "effort") {
           if ((EFFORTS as string[]).includes(arg)) {
             effort = arg as Effort;
@@ -187,6 +222,7 @@ export async function runRepl(opts: RunOpts): Promise<void> {
         }
       }
 
+      taskText = await expandMentions(taskText); // inline any @file mentions
       snapshots.push(messages.slice()); // for /rewind (shallow — messages aren't mutated in place)
       if (snapshots.length > MAX_SNAPSHOTS) snapshots.shift();
       messages = await session.compact(messages); // fold older turns if too long
