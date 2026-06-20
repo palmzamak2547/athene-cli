@@ -65,7 +65,7 @@ const EXT_LANG: Record<string, keyof typeof RULES> = {
   ".rb": "rb",
 };
 
-function outline(text: string, lang: keyof typeof RULES): string[] {
+export function outline(text: string, lang: keyof typeof RULES): string[] {
   const rules = RULES[lang];
   const out: string[] = [];
   const lines = text.split(/\r?\n/);
