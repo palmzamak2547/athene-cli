@@ -38,6 +38,7 @@ const HELP = `athene — a free, frontier-class terminal coding agent (Athene su
 Usage
   athene                  start an interactive session (in a terminal)
   athene "<task>"         run a single task
+  athene serve [--port N] [--yolo]   headless agent server (localhost HTTP/SSE)
   athene "<task>" [options]
 
 Options
@@ -101,7 +102,16 @@ function parse(argv: string[]): Opts {
 }
 
 async function main() {
-  const o = parse(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  // `athene serve` — start the headless agent server (clients connect over HTTP/SSE).
+  if (argv[0] === "serve") {
+    const { runServer } = await import("./server.js");
+    const pi = argv.indexOf("--port");
+    const port = pi >= 0 ? parseInt(argv[pi + 1] ?? "", 10) || 4141 : 4141;
+    await runServer({ port, yolo: argv.includes("--yolo") || argv.includes("-y") });
+    return; // runs until killed
+  }
+  const o = parse(argv);
   if (o.version) {
     process.stdout.write(`athene-cli v${version()}\n`);
     process.exit(0);

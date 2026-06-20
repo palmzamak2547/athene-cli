@@ -132,6 +132,10 @@ A working multi-step agent on free frontier models. Shipped:
   to a fresh sub-agent with its own context; only the sub-agent's report comes
   back, so the main context stays lean. One level deep (no recursion); the
   sub-agent's edits are still approval-gated.
+- **Server** (`athene serve`) — a headless agent server (HTTP + SSE) so any client
+  can drive Athene (the "everything is a client of one server" model). Bound to
+  `127.0.0.1` only, bearer-token-gated, browser-origin-checked, and read-only
+  unless started with `--yolo` — the security model OpenClaw's CVE lacked.
 - **Verify loop** — after a file change, runs the project's check (typecheck /
   build / cargo check / go build) and feeds failures back to self-correct;
   on by default under `--yolo` (`--verify` / `--no-verify` to override). It

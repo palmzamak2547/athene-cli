@@ -76,6 +76,9 @@ const TIERS: Record<Effort, Array<[string, string]>> = {
     ["nim", "nvidia/llama-3.3-nemotron-super-49b-v1"],
     ["groq", "openai/gpt-oss-120b"],
     ["openrouter", "deepseek/deepseek-r1:free"],
+    // Nous Hermes 3 405B — free + large + tool-tuned. Opt-in: needs an OpenRouter
+    // key (NIM doesn't host Hermes — verified against the live catalog 2026-06-20).
+    ["openrouter", "nousresearch/hermes-3-llama-3.1-405b:free"],
     ["huggingface", "deepseek-ai/DeepSeek-R1:fastest"],
   ],
 };
