@@ -29,9 +29,14 @@ type RunOpts = {
 
 export async function runAgent(opts: RunOpts): Promise<void> {
   const candidates = resolveCandidates(opts.effort);
-  const tools = makeTools(opts.allowWrite, (line) =>
-    process.stderr.write(pc.green(`  ✓ ${line}\n`)),
-  );
+  // A mutating tool (write/edit/bash) ran → the workspace changed → it is NOT
+  // safe to fail over to another model (it would replay those side-effects).
+  // makeTools only calls onActivity on a SUCCESSFUL mutation; reads are silent.
+  let sideEffected = false;
+  const tools = makeTools(opts.allowWrite, (line) => {
+    sideEffected = true;
+    process.stderr.write(pc.green(`  ✓ ${line}\n`));
+  });
   const ro = opts.allowWrite ? "" : " · read-only (pass --yolo to edit + run)";
 
   let lastErr = "";
@@ -43,6 +48,13 @@ export async function runAgent(opts: RunOpts): Promise<void> {
     if (res.ok) return;
 
     lastErr = res.err ?? "unknown error";
+    // grok review 1a: if a model already mutated the workspace then failed,
+    // retrying a different model would duplicate those changes. Stop instead.
+    if (sideEffected) {
+      throw new Error(
+        `${label} failed AFTER modifying the workspace — not retrying another model to avoid duplicate changes. Error: ${lastErr}`,
+      );
+    }
     process.stderr.write(pc.yellow(`  ↳ ${label} failed (${lastErr}).`));
     if (i < candidates.length - 1) process.stderr.write(pc.yellow(" trying next free model…\n\n"));
     else process.stderr.write("\n");
@@ -79,8 +91,13 @@ async function streamOnce(
           break;
         }
         case "tool-call": {
-          const args = part.input ?? part.args ?? {};
-          const preview = JSON.stringify(args).replace(/\s+/g, " ").slice(0, 100);
+          // grok review 2a: show only the locating arg (path/command), never the
+          // full args JSON — keeps file bodies + anything secret out of the log.
+          const args = (part.input ?? part.args ?? {}) as Record<string, unknown>;
+          const key = "command" in args ? "command" : "path" in args ? "path" : null;
+          const preview = key
+            ? String(args[key]).replace(/\s+/g, " ").slice(0, 80)
+            : Object.keys(args).join(", ");
           process.stderr.write(pc.cyan(`\n  → ${part.toolName}(${preview})\n`));
           break;
         }
@@ -97,11 +114,15 @@ async function streamOnce(
     if (sawText) process.stdout.write("\n");
     return { ok: true };
   } catch (e) {
+    const err = stringifyErr(e);
     if (sawText) {
+      // grok review 1b: already committed to this answer — surface the error
+      // (don't swallow it) but keep the partial output rather than failing over.
       process.stdout.write("\n");
-      return { ok: true }; // already committed to this answer; don't fail over
+      process.stderr.write(pc.red(`[error] ${err}\n`));
+      return { ok: true };
     }
-    return { ok: false, err: stringifyErr(e) };
+    return { ok: false, err };
   }
 }
 
