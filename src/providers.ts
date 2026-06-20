@@ -46,6 +46,14 @@ const PROVIDERS: Record<string, Provider> = {
   // ~$0.10/mo of credits, so it sits LAST in every tier (a safety net, not a
   // workhorse). Model IDs take a :policy suffix (:cheapest / :fastest).
   huggingface: { baseURL: "https://router.huggingface.co/v1", keyEnv: "HF_TOKEN" },
+  // Google Gemini via its OpenAI-compatible endpoint. Generous free tier from
+  // AI Studio (get a key at aistudio.google.com). OPT-IN: only used if you set
+  // GEMINI_API_KEY, so it never affects the default NIM path. (Endpoint + model
+  // from Google's docs; not live-verified here — set a key to use it.)
+  gemini: {
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+    keyEnv: "GEMINI_API_KEY",
+  },
 };
 
 // effort → ordered [providerKey, modelId] candidates. The agent walks the list
@@ -56,6 +64,7 @@ const TIERS: Record<Effort, Array<[string, string]>> = {
   fast: [
     ["groq", "openai/gpt-oss-20b"],
     ["cerebras", "llama-3.3-70b"],
+    ["gemini", "gemini-2.5-flash"], // opt-in (GEMINI_API_KEY); fast + strong + free tier
     ["nim", "meta/llama-3.3-70b-instruct"],
     ["openrouter", "meta-llama/llama-3.3-70b-instruct:free"],
     ["huggingface", "openai/gpt-oss-20b:cheapest"],
@@ -64,6 +73,7 @@ const TIERS: Record<Effort, Array<[string, string]>> = {
   // tool-calling backstop right behind it.
   balanced: [
     ["nim", "qwen/qwen3.5-122b-a10b"],
+    ["gemini", "gemini-2.5-flash"], // opt-in (GEMINI_API_KEY)
     ["nim", "meta/llama-3.3-70b-instruct"],
     ["groq", "openai/gpt-oss-120b"],
     ["openrouter", "qwen/qwen3-coder:free"],
@@ -73,6 +83,7 @@ const TIERS: Record<Effort, Array<[string, string]>> = {
   // tools well if the reasoner refuses to.
   deep: [
     ["nim", "deepseek-ai/deepseek-v4-pro"],
+    ["gemini", "gemini-2.5-pro"], // opt-in (GEMINI_API_KEY); strong reasoning, free tier
     ["nim", "nvidia/llama-3.3-nemotron-super-49b-v1"],
     ["groq", "openai/gpt-oss-120b"],
     ["openrouter", "deepseek/deepseek-r1:free"],

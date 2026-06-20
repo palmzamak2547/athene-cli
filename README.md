@@ -111,9 +111,10 @@ to the model; the full instructions load on demand via `use_skill`. Drop an
 
 A working multi-step agent on free frontier models. Shipped:
 
-- **Failover** across NVIDIA NIM / Groq / Cerebras / OpenRouter / HuggingFace,
-  three effort tiers (fast / balanced / deep), runtime model rotation, and
-  forced single-tool-calls so smaller models don't 400 on parallel calls.
+- **Failover** across NVIDIA NIM / Groq / Cerebras / OpenRouter / HuggingFace /
+  Gemini (opt-in, generous free tier) + Nous Hermes, three effort tiers (fast /
+  balanced / deep), runtime model rotation, and forced single-tool-calls so
+  smaller models don't 400 on parallel calls.
 - **Search + edit tools** — `grep` + `glob` (ripgrep fast-path, dependency-free
   Node fallback), `symbols` (a tree-sitter-free "repo map" — outline a file/dir's
   functions/classes/exports so the agent navigates without reading everything,
