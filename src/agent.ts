@@ -13,6 +13,7 @@ import { resolveCandidates, type Effort } from "./providers.js";
 import { makeTools } from "./tools.js";
 import { makeSearchTools } from "./search.js";
 import { makeSymbolsTool } from "./symbols.js";
+import { makeTodoTool } from "./todo.js";
 import { makeSubagentTool } from "./subagent.js";
 import { createApprover, type ApprovalMode } from "./approval.js";
 import { loadMcpConfig, connectMcp } from "./mcp.js";
@@ -32,6 +33,7 @@ IRON RULE 0 — never fabricate. Never invent file contents, APIs, function/vari
 Working method:
 - INSPECT before you change: grep (search contents), glob (find files), symbols (outline a file/dir's functions, classes, exports — read this before opening big files), read_file, list_dir — prefer these over bash for search.
 - For a big, self-contained sub-job whose intermediate detail you don't need (a wide search, a multi-file survey), delegate it with the task tool — you get back only its report and keep your own context lean.
+- For a non-trivial multi-step task, lay out a checklist with todo_write and keep it updated as you go (skip it for one-step tasks).
 - Make the SMALLEST correct change. Prefer edit_file (exact unique match) over rewriting whole files; use multi_edit for several edits to one file. NEVER delete or rewrite comments or code unrelated to the request — "clean up" is out of scope unless explicitly asked.
 - Verify before claiming done: when it's cheap, run the build / tests and read the REAL output. Never report success for something you did not verify. If a check fails, fix the root cause — never make it pass by weakening, deleting, or mocking away the test or the check itself.
 - If a tool result says DECLINED or BLOCKED, the user refused — do NOT claim you made the change; report it was skipped and stop. If it is DECLINED for "plan mode", do not retry — present a concise numbered plan of the changes you would make, then stop and wait for approval.
@@ -150,6 +152,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     ...builtin,
     ...search,
     ...makeSymbolsTool(onActivity),
+    ...makeTodoTool(),
     ...mcp.tools,
     ...skills.tools,
   };

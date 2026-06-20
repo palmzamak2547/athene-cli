@@ -128,6 +128,9 @@ A working multi-step agent on free frontier models. Shipped:
   line shows the git branch. Long sessions **auto-compact** — older turns are
   summarized (at a clean boundary, never orphaning a tool result) so the context
   window never overflows.
+- **Task checklist** (`todo_write`) — on a multi-step job the agent lays out a
+  plan and updates it as it goes (✔/◐/○), so you stay oriented and it stays on
+  track (Claude Code's pattern).
 - **Plan mode** (`--plan` / `/plan`) — explore read-only and propose a plan for
   approval; every edit/command is declined until you turn it off.
 - **Sub-agents** (`task` tool) — the agent delegates a big self-contained sub-job
