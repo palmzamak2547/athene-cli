@@ -2,6 +2,7 @@
 // src/cli.ts — Athene CLI entry. Parses args, runs one agent turn over the task.
 import { runAgent } from "./agent.js";
 import { EFFORTS, type Effort } from "./providers.js";
+import { pickMode } from "./approval.js";
 
 const HELP = `athene — a free, frontier-class terminal coding agent (Athene suite)
 
@@ -12,9 +13,14 @@ Options
   -e, --effort <fast|balanced|deep>   model tier (default: balanced)
       --fast                          shorthand for --effort fast
       --deep                          shorthand for --effort deep
-  -y, --yolo                          allow file writes + shell commands (default: read-only)
+  -y, --yolo                          auto-approve every edit + command (no prompts)
       --max-steps <n>                 max agent steps (default: 24)
   -h, --help                          show this help
+
+Approval
+  By default Athene shows a diff / the command and asks before each change
+  (when run in a terminal). Piped/non-interactive runs are read-only unless you
+  pass --yolo.
 
 Free models — set at least NVIDIA_API_KEY (free at build.nvidia.com); optionally
 GROQ_API_KEY / CEREBRAS_API_KEY / OPENROUTER_API_KEY for faster tiers.
@@ -22,30 +28,25 @@ GROQ_API_KEY / CEREBRAS_API_KEY / OPENROUTER_API_KEY for faster tiers.
 Examples
   athene "explain what this repo does"
   athene --deep "why does the build fail?"
-  athene -y "add a --version flag and update the README"
+  athene "add a --version flag and update the README"      # asks before each edit
+  athene -y "fix the failing test"                          # no prompts
 `;
 
 type Opts = {
   help: boolean;
   effort: Effort;
-  allowWrite: boolean;
+  yolo: boolean;
   maxSteps: number;
   prompt: string;
 };
 
 function parse(argv: string[]): Opts {
-  const o: Opts = {
-    help: false,
-    effort: "balanced",
-    allowWrite: false,
-    maxSteps: 24,
-    prompt: "",
-  };
+  const o: Opts = { help: false, effort: "balanced", yolo: false, maxSteps: 24, prompt: "" };
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") o.help = true;
-    else if (a === "-y" || a === "--yolo") o.allowWrite = true;
+    else if (a === "-y" || a === "--yolo") o.yolo = true;
     else if (a === "--fast") o.effort = "fast";
     else if (a === "--deep") o.effort = "deep";
     else if (a === "-e" || a === "--effort") o.effort = (argv[++i] as Effort) ?? "balanced";
@@ -70,7 +71,7 @@ async function main() {
     await runAgent({
       prompt: o.prompt,
       effort: o.effort,
-      allowWrite: o.allowWrite,
+      mode: pickMode(o.yolo),
       maxSteps: o.maxSteps,
     });
   } catch (e: any) {
