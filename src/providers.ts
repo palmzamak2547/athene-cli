@@ -21,6 +21,10 @@ const PROVIDERS: Record<string, Provider> = {
   groq: { baseURL: "https://api.groq.com/openai/v1", keyEnv: "GROQ_API_KEY" },
   cerebras: { baseURL: "https://api.cerebras.ai/v1", keyEnv: "CEREBRAS_API_KEY" },
   openrouter: { baseURL: "https://openrouter.ai/api/v1", keyEnv: "OPENROUTER_API_KEY" },
+  // HuggingFace Inference Providers — OpenAI-compatible router. Free tier is only
+  // ~$0.10/mo of credits, so it sits LAST in every tier (a safety net, not a
+  // workhorse). Model IDs take a :policy suffix (:cheapest / :fastest).
+  huggingface: { baseURL: "https://router.huggingface.co/v1", keyEnv: "HF_TOKEN" },
 };
 
 // effort → ordered [providerKey, modelId] candidates. The agent walks the list
@@ -33,6 +37,7 @@ const TIERS: Record<Effort, Array<[string, string]>> = {
     ["cerebras", "llama-3.3-70b"],
     ["nim", "meta/llama-3.3-70b-instruct"],
     ["openrouter", "meta-llama/llama-3.3-70b-instruct:free"],
+    ["huggingface", "openai/gpt-oss-20b:cheapest"],
   ],
   // Default. A strong current coder leads; llama-3.3-70b is the reliable
   // tool-calling backstop right behind it.
@@ -41,6 +46,7 @@ const TIERS: Record<Effort, Array<[string, string]>> = {
     ["nim", "meta/llama-3.3-70b-instruct"],
     ["groq", "openai/gpt-oss-120b"],
     ["openrouter", "qwen/qwen3-coder:free"],
+    ["huggingface", "openai/gpt-oss-120b:cheapest"],
   ],
   // Hard problems → a reasoning model, then an agentic-tuned fallback that does
   // tools well if the reasoner refuses to.
@@ -49,6 +55,7 @@ const TIERS: Record<Effort, Array<[string, string]>> = {
     ["nim", "nvidia/llama-3.3-nemotron-super-49b-v1"],
     ["groq", "openai/gpt-oss-120b"],
     ["openrouter", "deepseek/deepseek-r1:free"],
+    ["huggingface", "deepseek-ai/DeepSeek-R1:fastest"],
   ],
 };
 

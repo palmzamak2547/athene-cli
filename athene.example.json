@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "context7": { "url": "https://mcp.context7.com/mcp" },
+    "gitmcp": { "url": "https://gitmcp.io/docs" },
+    "huggingface": {
+      "url": "https://huggingface.co/mcp",
+      "headers": { "Authorization": "Bearer ${HF_TOKEN}" }
+    },
+    "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] },
+    "sequentialthinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequentialthinking"]
+    }
+  }
+}

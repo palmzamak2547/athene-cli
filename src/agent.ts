@@ -11,6 +11,7 @@ import { resolveCandidates, type Effort } from "./providers.js";
 import { makeTools } from "./tools.js";
 import { createApprover, type ApprovalMode } from "./approval.js";
 import { loadMcpConfig, connectMcp } from "./mcp.js";
+import { loadSkills, loadProjectMemory } from "./skills.js";
 import { makeLoopGuard, type LoopGuard } from "./loopguard.js";
 import * as ui from "./ui.js";
 
@@ -58,11 +59,30 @@ export async function runAgent(opts: RunOpts): Promise<void> {
   const mcp = await connectMcp(await loadMcpConfig(), approve, onActivity, (l) =>
     process.stderr.write(ui.warnLine(l)),
   );
-  const tools = { ...builtin, ...mcp.tools };
+  // Skills: inherit the shared ~/.claude/skills bank (+ ~/.athene/skills) — surfaced
+  // as a compact index, loaded in full on demand via use_skill. Project memory:
+  // ./AGENTS.md / CLAUDE.md loaded up front.
+  const skills = await loadSkills();
+  const memory = await loadProjectMemory();
+
+  const tools = { ...builtin, ...mcp.tools, ...skills.tools };
   const loopGuard = makeLoopGuard();
   applyLoopGuard(tools, loopGuard); // stop same-tool-same-args spinning
-  if (mcp.summary.length) {
-    process.stderr.write(` ${pc.cyan("🔌")} ${pc.dim("MCP  " + mcp.summary.join("  ·  "))}\n`);
+
+  let system = SYSTEM;
+  if (memory) {
+    system += `\n\n# PROJECT MEMORY (from ${memory.name}) — the user's conventions for THIS project; follow them:\n${memory.text}`;
+  }
+  if (skills.promptIndex) {
+    system += `\n\n# AVAILABLE SKILLS — call use_skill("<name>") to load the full instructions BEFORE doing a task it covers:\n${skills.promptIndex}`;
+  }
+
+  const status: string[] = [];
+  if (skills.count) status.push(`${skills.count} skills`);
+  if (memory) status.push(memory.name);
+  if (mcp.summary.length) status.push("MCP " + mcp.summary.join(", "));
+  if (status.length) {
+    process.stderr.write(` ${pc.cyan("●")} ${pc.dim(status.join("  ·  "))}\n`);
   }
 
   try {
@@ -73,7 +93,7 @@ export async function runAgent(opts: RunOpts): Promise<void> {
       loopGuard.reset(); // fresh per model attempt (grok review)
       process.stderr.write(ui.banner(label, opts.effort, opts.mode, process.cwd()));
 
-      const res = await streamOnce(model, opts, tools);
+      const res = await streamOnce(model, opts, tools, system);
       if (res.ok) {
         process.stderr.write(
           ui.summary({ files: files.size, commands: commands + mcpCalls, ms: Date.now() - started }),
@@ -105,6 +125,7 @@ async function streamOnce(
   model: LanguageModel,
   opts: RunOpts,
   tools: Record<string, any>,
+  system: string,
 ): Promise<{ ok: boolean; err?: string }> {
   const spin = ui.makeSpinner("thinking…");
   let sawText = false;
@@ -112,7 +133,7 @@ async function streamOnce(
   try {
     const result = streamText({
       model,
-      system: SYSTEM,
+      system,
       prompt: opts.prompt,
       tools,
       stopWhen: stepCountIs(opts.maxSteps),

@@ -55,16 +55,32 @@ of `NVIDIA_API_KEY` (always-on floor), `GROQ_API_KEY`, `CEREBRAS_API_KEY`,
 ## MCP — composable
 
 Point Athene at any [Model Context Protocol](https://modelcontextprotocol.io) server
-and its tools join the built-ins. Create `athene.json` (or `~/.athene/config.json`):
+and its tools join the built-ins. Create `athene.json` (project) or
+`~/.athene/config.json` (global). `${VAR}` is substituted from the environment, so
+you never hardcode a token:
 
 ```json
 {
   "mcpServers": {
-    "arnfa":  { "command": "npx", "args": ["arnfa-mcp"] },
-    "remote": { "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
+    "context7": { "url": "https://mcp.context7.com/mcp" },
+    "gitmcp":   { "url": "https://gitmcp.io/docs" },
+    "hf":       { "url": "https://huggingface.co/mcp", "headers": { "Authorization": "Bearer ${HF_TOKEN}" } },
+    "arnfa":    { "command": "npx", "args": ["arnfa-mcp"] }
   }
 }
 ```
+
+A broken/slow server is skipped, never fatal. See `athene.example.json` for the
+recommended set (Context7 = version-correct library docs · GitMCP = any-repo source ·
+fetch · sequential-thinking · HuggingFace). Context7 + GitMCP are the biggest
+out-of-the-box precision wins for a coding agent, and need no key.
+
+## Skills & project memory
+
+Athene reads the **same skill bank Claude Code + grok share** — `~/.claude/skills`
+(and its own `~/.athene/skills`). Each skill's name + one-line purpose is surfaced
+to the model; the full instructions load on demand via `use_skill`. Drop an
+`AGENTS.md` (or `CLAUDE.md`) in a project and Athene loads it as up-front context.
 
 ## Safety
 

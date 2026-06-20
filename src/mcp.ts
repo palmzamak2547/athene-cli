@@ -43,7 +43,23 @@ async function readJson(file: string): Promise<Config | null> {
 export async function loadMcpConfig(): Promise<Record<string, McpServerConfig>> {
   const global = await readJson(path.join(os.homedir(), ".athene", "config.json"));
   const local = await readJson(path.join(process.cwd(), "athene.json"));
-  return { ...(global?.mcpServers ?? {}), ...(local?.mcpServers ?? {}) };
+  const merged = { ...(global?.mcpServers ?? {}), ...(local?.mcpServers ?? {}) };
+  return substituteEnv(merged);
+}
+
+// Replace ${VAR} in any string value with process.env.VAR, so a config can
+// reference a token (e.g. "Bearer ${HF_TOKEN}") without hardcoding the secret.
+function substituteEnv<T>(v: T): T {
+  if (typeof v === "string") {
+    return v.replace(/\$\{(\w+)\}/g, (_, k) => process.env[k] ?? "") as unknown as T;
+  }
+  if (Array.isArray(v)) return v.map((x) => substituteEnv(x)) as unknown as T;
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v)) out[k] = substituteEnv(val);
+    return out as T;
+  }
+  return v;
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
