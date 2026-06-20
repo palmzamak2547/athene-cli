@@ -1,0 +1,39 @@
+{
+  "name": "athene",
+  "version": "0.0.1",
+  "description": "Athene — a free, frontier-class, MCP-native terminal coding agent. Part of the open Athene suite.",
+  "type": "module",
+  "bin": {
+    "athene": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "athene": "tsx src/cli.ts",
+    "build": "tsup src/cli.ts --format esm --target node20 --clean --no-splitting",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-agent",
+    "mcp",
+    "athene"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^1.0.0",
+    "ai": "^5.0.0",
+    "picocolors": "^1.1.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
