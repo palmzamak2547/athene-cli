@@ -24,10 +24,17 @@ const singleToolCallFetch: typeof fetch = async (input, init) => {
   if (init?.body && typeof init.body === "string") {
     try {
       const b = JSON.parse(init.body);
+      let changed = false;
       if (Array.isArray(b.tools) && b.tools.length > 0 && b.parallel_tool_calls === undefined) {
         b.parallel_tool_calls = false;
-        init = { ...init, body: JSON.stringify(b) };
+        changed = true;
       }
+      // Ask for token usage in the final streaming chunk (OpenAI-standard).
+      if (b.stream === true && b.stream_options === undefined) {
+        b.stream_options = { include_usage: true };
+        changed = true;
+      }
+      if (changed) init = { ...init, body: JSON.stringify(b) };
     } catch {
       /* body isn't JSON we recognise — forward untouched */
     }

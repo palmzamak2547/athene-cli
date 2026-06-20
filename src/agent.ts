@@ -237,18 +237,18 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     //                       pass must not inherit the first pass's mutations)
     let lastErr = "";
     for (let i = 0; i < candidates.length; i++) {
-      if (signal?.aborted) return { responseMessages: [] };
+      if (signal?.aborted) return { responseMessages: [], tokens: 0 };
       const { model, label } = candidates[i];
       loopGuard.reset(); // fresh per model attempt (grok review)
       if (showBanner) process.stderr.write(ui.banner(label, effort, opts.mode, process.cwd()));
       else process.stderr.write(pc.dim(` ${pc.cyan("·")} ${label}\n`)); // compact (REPL)
 
       const res = await streamOnce(model, opts, tools, system, messages, signal);
-      if (res.ok) return { responseMessages: res.responseMessages ?? [] };
+      if (res.ok) return { responseMessages: res.responseMessages ?? [], tokens: res.tokens ?? 0 };
 
       lastErr = res.err ?? "unknown error";
       // User interrupted — stop here, never fail over to another model.
-      if (signal?.aborted) return { responseMessages: res.responseMessages ?? [] };
+      if (signal?.aborted) return { responseMessages: res.responseMessages ?? [], tokens: res.tokens ?? 0 };
       // If a model already mutated the workspace then failed, retrying a different
       // model would duplicate those changes. Stop instead. (grok review)
       if (sideEffected) {
@@ -275,6 +275,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
 
     const first = await runModelPass(messages, showBanner, signal);
     const allResponse = [...first.responseMessages];
+    let totalTokens = first.tokens ?? 0;
 
     // Verify-and-fix: only when enabled, a check exists, the task may have changed
     // files (a file edit OR a bash command — codex review), and not interrupted.
@@ -296,6 +297,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
         taskMutatedFiles = false;
         taskRanCommand = false;
         const fix = await runModelPass(convo, false, signal);
+        totalTokens += fix.tokens ?? 0;
         convo.push(...fix.responseMessages);
         allResponse.push(...fix.responseMessages);
         // no change at all (neither edit nor command) / interrupted → stop
@@ -304,7 +306,7 @@ export async function openSession(opts: RunOpts): Promise<SessionHandle> {
     }
 
     process.stderr.write(
-      ui.summary({ files: files.size, commands: commands + mcpCalls, ms: Date.now() - started }),
+      ui.summary({ files: files.size, commands: commands + mcpCalls, ms: Date.now() - started, tokens: totalTokens }),
     );
     return { ok: true, responseMessages: allResponse };
   };
@@ -375,7 +377,7 @@ async function streamOnce(
   system: string,
   messages: any[],
   signal?: AbortSignal,
-): Promise<{ ok: boolean; err?: string; responseMessages?: any[] }> {
+): Promise<{ ok: boolean; err?: string; responseMessages?: any[]; tokens?: number }> {
   const spin = ui.makeSpinner("thinking…");
   let sawText = false;
   spin.start();
@@ -436,16 +438,20 @@ async function streamOnce(
       }
     }
     spin.stop();
+    const usage = await result.usage.catch(() => undefined);
+    const tokens = usage
+      ? (usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0))
+      : undefined;
     if (sawText) {
       process.stdout.write("\n");
-      return { ok: true, responseMessages: await grab(result) };
+      return { ok: true, responseMessages: await grab(result), tokens };
     }
     // Finished with no written answer — almost always a tool loop or a hit step
     // cap. Say so honestly instead of exiting silently.
     process.stderr.write(
       ui.warnLine("the model stopped without a written answer (it may have looped) — try --deep or a clearer task"),
     );
-    return { ok: true, responseMessages: await grab(result) };
+    return { ok: true, responseMessages: await grab(result), tokens };
   } catch (e) {
     spin.stop();
     // User interrupt (Esc / Ctrl-C) — not a model failure; stop cleanly, no failover.
