@@ -15,6 +15,7 @@ const HELP = `${pc.bold("commands")}
   /help            this help
   /effort <tier>   switch model tier (${EFFORTS.join(" | ")})
   /fast /deep      shortcuts for the tiers
+  /verify on|off   run the project's check after a file change + self-correct
   /clear           forget the conversation so far (fresh context)
   /exit            quit (or Ctrl-D)
 Anything else is a task. History is kept across turns — refer back freely.`;
@@ -72,6 +73,10 @@ export async function runRepl(opts: RunOpts): Promise<void> {
           } else {
             process.stdout.write(pc.yellow(`usage: /effort ${EFFORTS.join(" | ")}\n`));
           }
+        } else if (cmd === "verify") {
+          const on = arg === "on" || arg === "true" || arg === "1";
+          session.setVerify(on);
+          process.stdout.write(pc.dim(`verify → ${on ? "on" : "off"}\n`));
         } else if ((EFFORTS as string[]).includes(cmd)) {
           effort = cmd as Effort;
           session.setEffort(effort);

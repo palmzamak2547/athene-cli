@@ -110,18 +110,27 @@ A working multi-step agent on free frontier models. Shipped:
   Node fallback), `read_file`, `list_dir`, `write_file`, `edit_file` (tolerant
   exact → line-trimmed → whitespace matcher, EOL/BOM-aware), `multi_edit`
   (atomic), `bash`.
+- **Interactive REPL** — `athene` (no task) keeps conversation history across
+  turns; slash commands `/effort`, `/verify`, `/clear`, `/help`.
+- **Verify loop** — after a file change, runs the project's check (typecheck /
+  build / cargo check / go build) and feeds failures back to self-correct;
+  on by default under `--yolo` (`--verify` / `--no-verify` to override). It
+  won't make a check pass by weakening or deleting the test.
 - **Skills + memory** — inherits the shared `~/.claude/skills` bank; loads
-  `AGENTS.md` / `CLAUDE.md` as project context.
+  `AGENTS.md` / `CLAUDE.md` as project context (treated as data, not commands).
 - **MCP client** — any stdio/HTTP server's tools join the built-ins.
 - **Safety** — diff-before-apply approval (3 modes), cwd path confinement,
-  secret-file refusal, destructive-command block, runaway-loop guard, trust
-  boundary.
+  secret-file refusal, destructive-command block, runaway-loop guard, and a
+  trust boundary hardened against the documented injection vectors (config /
+  dotfile / memory-file payloads), plus Iron Rule 0 extended to package
+  existence + system-state claims.
 - **Tested** — `npm test` (37 unit tests) + CI on every push; reviewed by a
-  3-model loop (Claude + grok + codex).
+  3-model loop (Claude + grok + codex) and informed by a study of frontier
+  agents' documented failure modes.
 
-**Next** (frontier patterns from Codex / Claude Code / aider / opencode): a
-post-edit verify loop, an interactive REPL + slash-commands, and a
-`semantic-router` effort classifier.
+**Next** (frontier patterns from Codex / Claude Code / Grok Build): custom
+`.athene/commands/*.md` slash commands, plan mode (read-only until approved),
+`/diff` review, and Esc-to-interrupt + rewind.
 
 ## Development
 

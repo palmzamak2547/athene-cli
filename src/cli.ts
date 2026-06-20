@@ -17,6 +17,8 @@ Options
       --fast                          shorthand for --effort fast
       --deep                          shorthand for --effort deep
   -y, --yolo                          auto-approve every edit + command (no prompts)
+      --verify / --no-verify          after a file change, run the project's check
+                                      and self-correct (default: on with --yolo)
       --max-steps <n>                 max agent steps (default: 24)
   -h, --help                          show this help
 
@@ -39,17 +41,20 @@ type Opts = {
   help: boolean;
   effort: Effort;
   yolo: boolean;
+  verify: boolean | null; // null = unset → defaults to (yolo)
   maxSteps: number;
   prompt: string;
 };
 
 function parse(argv: string[]): Opts {
-  const o: Opts = { help: false, effort: "balanced", yolo: false, maxSteps: 24, prompt: "" };
+  const o: Opts = { help: false, effort: "balanced", yolo: false, verify: null, maxSteps: 24, prompt: "" };
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") o.help = true;
     else if (a === "-y" || a === "--yolo") o.yolo = true;
+    else if (a === "--verify") o.verify = true;
+    else if (a === "--no-verify") o.verify = false;
     else if (a === "--fast") o.effort = "fast";
     else if (a === "--deep") o.effort = "deep";
     else if (a === "-e" || a === "--effort") o.effort = (argv[++i] as Effort) ?? "balanced";
@@ -82,6 +87,7 @@ async function main() {
     effort: o.effort,
     mode: pickMode(o.yolo),
     maxSteps: o.maxSteps,
+    verify: o.verify ?? o.yolo, // default: verify when auto-approving
   };
   try {
     if (interactive) await runRepl(runOpts);
