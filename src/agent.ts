@@ -10,6 +10,8 @@ import pc from "picocolors";
 import { resolveCandidates, type Effort } from "./providers.js";
 import { makeTools } from "./tools.js";
 import { createApprover, type ApprovalMode } from "./approval.js";
+import { loadMcpConfig, connectMcp } from "./mcp.js";
+import { makeLoopGuard, type LoopGuard } from "./loopguard.js";
 import * as ui from "./ui.js";
 
 const SYSTEM = `You are Athene — a precise, terse terminal coding agent (part of the open, free Athene suite).
@@ -36,41 +38,61 @@ export async function runAgent(opts: RunOpts): Promise<void> {
   // Stats for the run summary + the failover side-effect guard.
   const files = new Set<string>();
   let commands = 0;
+  let mcpCalls = 0;
   let sideEffected = false;
-  const tools = makeTools(approve, (line) => {
+  const onActivity = (line: string) => {
     sideEffected = true;
     if (line.startsWith("ran:")) commands++;
+    else if (line.startsWith("called ")) mcpCalls++;
     else {
       const m = line.match(/^(?:wrote|edited)\s+(\S+)/);
       if (m) files.add(m[1]);
     }
     process.stderr.write(ui.noteLine(line));
-  });
+  };
+  const builtin = makeTools(approve, onActivity);
 
-  const started = Date.now();
-  let lastErr = "";
-  for (let i = 0; i < candidates.length; i++) {
-    const { model, label } = candidates[i];
-    process.stderr.write(ui.banner(label, opts.effort, opts.mode, process.cwd()));
-
-    const res = await streamOnce(model, opts, tools);
-    if (res.ok) {
-      process.stderr.write(ui.summary({ files: files.size, commands, ms: Date.now() - started }));
-      return;
-    }
-
-    lastErr = res.err ?? "unknown error";
-    // If a model already mutated the workspace then failed, retrying a different
-    // model would duplicate those changes. Stop instead. (grok review)
-    if (sideEffected) {
-      throw new Error(
-        `${label} failed AFTER modifying the workspace — not retrying another model to avoid duplicate changes. Error: ${lastErr}`,
-      );
-    }
-    process.stderr.write(ui.warnLine(`${label} failed (${lastErr})`));
-    if (i < candidates.length - 1) process.stderr.write(pc.dim("   trying the next free model…\n"));
+  // MCP: connect any configured servers (./athene.json or ~/.athene/config.json);
+  // their tools join the built-ins. A broken server is skipped, never fatal.
+  const mcp = await connectMcp(await loadMcpConfig(), approve, onActivity, (l) =>
+    process.stderr.write(ui.warnLine(l)),
+  );
+  const tools = { ...builtin, ...mcp.tools };
+  applyLoopGuard(tools, makeLoopGuard()); // stop same-tool-same-args spinning
+  if (mcp.summary.length) {
+    process.stderr.write(` ${pc.cyan("🔌")} ${pc.dim("MCP  " + mcp.summary.join("  ·  "))}\n`);
   }
-  throw new Error(`All free models for effort "${opts.effort}" failed. Last error: ${lastErr}`);
+
+  try {
+    const started = Date.now();
+    let lastErr = "";
+    for (let i = 0; i < candidates.length; i++) {
+      const { model, label } = candidates[i];
+      process.stderr.write(ui.banner(label, opts.effort, opts.mode, process.cwd()));
+
+      const res = await streamOnce(model, opts, tools);
+      if (res.ok) {
+        process.stderr.write(
+          ui.summary({ files: files.size, commands: commands + mcpCalls, ms: Date.now() - started }),
+        );
+        return;
+      }
+
+      lastErr = res.err ?? "unknown error";
+      // If a model already mutated the workspace then failed, retrying a different
+      // model would duplicate those changes. Stop instead. (grok review)
+      if (sideEffected) {
+        throw new Error(
+          `${label} failed AFTER modifying the workspace — not retrying another model to avoid duplicate changes. Error: ${lastErr}`,
+        );
+      }
+      process.stderr.write(ui.warnLine(`${label} failed (${lastErr})`));
+      if (i < candidates.length - 1) process.stderr.write(pc.dim("   trying the next free model…\n"));
+    }
+    throw new Error(`All free models for effort "${opts.effort}" failed. Last error: ${lastErr}`);
+  } finally {
+    await mcp.close();
+  }
 }
 
 // Run one model. ok=true if it produced output / finished cleanly; ok=false (with
@@ -79,7 +101,7 @@ export async function runAgent(opts: RunOpts): Promise<void> {
 async function streamOnce(
   model: LanguageModel,
   opts: RunOpts,
-  tools: ReturnType<typeof makeTools>,
+  tools: Record<string, any>,
 ): Promise<{ ok: boolean; err?: string }> {
   const spin = ui.makeSpinner("thinking…");
   let sawText = false;
@@ -131,7 +153,15 @@ async function streamOnce(
       }
     }
     spin.stop();
-    if (sawText) process.stdout.write("\n");
+    if (sawText) {
+      process.stdout.write("\n");
+      return { ok: true };
+    }
+    // Finished with no written answer — almost always a tool loop or a hit step
+    // cap. Say so honestly instead of exiting silently.
+    process.stderr.write(
+      ui.warnLine("the model stopped without a written answer (it may have looped) — try --deep or a clearer task"),
+    );
     return { ok: true };
   } catch (e) {
     spin.stop();
@@ -142,6 +172,31 @@ async function streamOnce(
       return { ok: true };
     }
     return { ok: false, err };
+  }
+}
+
+// Wrap every tool's execute with the loop guard: same-tool-same-args repeats
+// (a weaker model spinning) become a cached result + nudge, then a hard stop.
+// Mutating .execute in place is safe — the SDK calls tool.execute(args, options).
+function applyLoopGuard(tools: Record<string, any>, guard: LoopGuard): void {
+  for (const [name, t] of Object.entries(tools)) {
+    const orig = t?.execute;
+    if (typeof orig !== "function") continue;
+    t.execute = async (args: any, options: any) => {
+      const blocked = guard.before(name, args);
+      if (blocked) return blocked;
+      const res = await orig(args, options);
+      guard.after(name, args, typeof res === "string" ? res : safeJson(res));
+      return res;
+    };
+  }
+}
+
+function safeJson(v: unknown): string {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
   }
 }
 
