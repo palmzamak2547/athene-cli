@@ -60,7 +60,7 @@ function relForward(abs: string): string {
 // alternates, everything else literal. A pattern with NO `/` matches a file's
 // BASENAME at any depth (so `*.ts` finds every .ts), matching how these agents
 // are actually used; a pattern WITH `/` or `**` matches the full relative path.
-function globToRe(glob: string): RegExp {
+export function globToRe(glob: string): RegExp {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];

@@ -96,15 +96,37 @@ to the model; the full instructions load on demand via `use_skill`. Drop an
 
 ## Status
 
-**v0.4** — working multi-step agent on free frontier models, with: runtime model
-failover, diff-before-apply approval (3 modes), MCP client, a tolerant edit matcher
-(exact → line-trimmed → whitespace, EOL/BOM-aware), a runaway-loop guard, and the
-safety guards above. Reviewed by a 3-model loop (Claude + grok + codex).
+A working multi-step agent on free frontier models. Shipped:
 
-**Next** (frontier patterns from Codex / Claude Code / aider / opencode): dedicated
-`grep`/`glob` tools (vs shell), `multi_edit`, post-edit verify loop, `AGENTS.md`
-project memory, an interactive REPL + slash-commands, and a `semantic-router` effort
-classifier.
+- **Failover** across NVIDIA NIM / Groq / Cerebras / OpenRouter / HuggingFace,
+  three effort tiers (fast / balanced / deep), runtime model rotation, and
+  forced single-tool-calls so smaller models don't 400 on parallel calls.
+- **Search + edit tools** — `grep` + `glob` (ripgrep fast-path, dependency-free
+  Node fallback), `read_file`, `list_dir`, `write_file`, `edit_file` (tolerant
+  exact → line-trimmed → whitespace matcher, EOL/BOM-aware), `multi_edit`
+  (atomic), `bash`.
+- **Skills + memory** — inherits the shared `~/.claude/skills` bank; loads
+  `AGENTS.md` / `CLAUDE.md` as project context.
+- **MCP client** — any stdio/HTTP server's tools join the built-ins.
+- **Safety** — diff-before-apply approval (3 modes), cwd path confinement,
+  secret-file refusal, destructive-command block, runaway-loop guard, trust
+  boundary.
+- **Tested** — `npm test` (37 unit tests) + CI on every push; reviewed by a
+  3-model loop (Claude + grok + codex).
+
+**Next** (frontier patterns from Codex / Claude Code / aider / opencode): a
+post-edit verify loop, an interactive REPL + slash-commands, and a
+`semantic-router` effort classifier.
+
+## Development
+
+```bash
+npm install
+npm run typecheck   # tsc --noEmit
+npm test            # node's test runner — edit matcher, glob, skills
+                    # frontmatter, safety guards, loop guard
+npm run build       # tsup → dist/cli.js
+```
 
 ## The Athene suite
 

@@ -1,6 +1,6 @@
 {
   "name": "athene-cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Athene — a free, frontier-class, MCP-native terminal coding agent. Part of the open Athene suite.",
   "type": "module",
   "bin": {
@@ -22,7 +22,8 @@
     "build": "tsup src/cli.ts --format esm --target node20 --clean --no-splitting",
     "prepublishOnly": "npm run build",
     "start": "node dist/cli.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "keywords": [
     "ai",

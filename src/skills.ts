@@ -21,7 +21,7 @@ const SKILL_DIRS = [
 
 type SkillMeta = { name: string; short: string; file: string };
 
-function parseMeta(text: string, fallback: string): { name: string; description: string } {
+export function parseMeta(text: string, fallback: string): { name: string; description: string } {
   const m = text.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
   const fm = m ? m[1] : "";
   return { name: yamlValue(fm, "name") || fallback, description: yamlValue(fm, "description") };

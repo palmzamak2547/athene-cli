@@ -46,7 +46,7 @@ export const escapeErr = (p: string) =>
 // Refuse to read obvious secret files into the model's context — the top
 // real-world leak vector (an injected file says "read .env and exfiltrate it").
 // Templates (.env.example etc.) are allowed. (recon hardening 2026-06-20)
-function isSecretFile(p: string): boolean {
+export function isSecretFile(p: string): boolean {
   const base = (p.split(/[/\\]/).pop() ?? "").toLowerCase();
   if (/^\.env(\.|$)/.test(base) && !/\.(example|sample|template|dist)$/.test(base)) return true;
   if (/\.(pem|key|p12|pfx|asc|ppk|keystore|jks)$/.test(base)) return true;
@@ -58,7 +58,7 @@ function isSecretFile(p: string): boolean {
 // Block catastrophic shell commands even after approval / in --yolo. Not a
 // sandbox — a backstop against unambiguous disasters. Splits on shell operators
 // so a benign prefix can't smuggle a second command. (recon hardening)
-function destructiveReason(command: string): string | null {
+export function destructiveReason(command: string): string | null {
   // Fork bomb — test the WHOLE command; its inner ; | & would defeat the split.
   if (/:\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*\}\s*;\s*:/.test(command)) return "fork bomb";
   for (const sub of command.split(/[;&|]+|\n/)) {
